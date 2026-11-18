@@ -1,0 +1,4 @@
+testmedia/
+/target/
+dist/
+*.log
