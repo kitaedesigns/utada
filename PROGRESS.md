@@ -67,6 +67,9 @@ P = pass, F = fail/absent, U = unknown (needs Windows). "src" = from source read
 | Corrupt file / non-media | U | P on Linux (error tile) |
 | 6/9/12 tiles HEVC 1080p, 4× 4K, 10-min memory | U | U |
 
+## Requirements changes
+- 2026-11-19: **R22 Playlists and tags** added at your request. Spec, interpretation and acceptance tests in `docs/R22-playlists-and-tags.md`. Not built (Phase 1 gate). It replaces the separate "Save/Open playlist" in plan 2.8, so the app has one playlist concept.
+
 ## Decisions made
 - Did not install anything on your machine (none attached).
 - Did not create `NOTICE.md`/`LICENSES.md` yet: no upstream code has been copied into this repo.
@@ -76,3 +79,4 @@ P = pass, F = fail/absent, U = unknown (needs Windows). "src" = from source read
 2. Confirm the GPU (plan says RTX 5070 Ti).
 3. A HEIC sample photo.
 4. Candidate choice (see report).
+5. R22: confirm tags go on files (not only on playlists), and that smart (tag-rule) playlists are wanted.
