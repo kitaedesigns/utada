@@ -6,7 +6,7 @@
 
 Status: **specified, not built.** Phase 1 is still at the decision gate, so no feature code yet. Slots into Phase 2 after 2.8 (settings) and 2.13 (queues), because it reuses both.
 
-## Interpretation (confirm or correct)
+## Interpretation (tags on files confirmed by you 2026-11-19)
 "Playlist with tags, so one video can be in multiple playlists" is read as:
 - **Tags** are labels you put on files (for example `keynote`, `2025`, `Q&A`, `best-of`). A file can have many tags.
 - **Playlists** are named collections. A file can be in many playlists. Two kinds:

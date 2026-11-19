@@ -75,8 +75,8 @@ P = pass, F = fail/absent, U = unknown (needs Windows). "src" = from source read
 - Did not create `NOTICE.md`/`LICENSES.md` yet: no upstream code has been copied into this repo.
 
 ## Open questions for you
-1. How do you want Phase 1.4 run on Windows: Claude Code on the PC itself, or attach the PC to this session via Remote Control?
+1. ~~How to run on Windows~~ Decided: continue in a local Claude Code session in Cursor on the Windows PC. See `HANDOFF.md`.
 2. Confirm the GPU (plan says RTX 5070 Ti).
 3. A HEIC sample photo.
 4. Candidate choice (see report).
-5. R22: confirm tags go on files (not only on playlists), and that smart (tag-rule) playlists are wanted.
+5. R22: tags on files **confirmed**. Smart (tag-rule) playlists assumed wanted unless you say otherwise.
