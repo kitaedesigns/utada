@@ -1,0 +1,130 @@
+from PySide6.QtCore import QSettings
+
+from mosaicplayer.config import Config
+
+
+def test_damaged_and_unknown_values_fall_back_to_defaults(isolated_settings):
+    store = QSettings("mosaicplayer", "mosaicplayer")
+    store.clear()
+    store.setValue("gap", "lots")
+    store.setValue("layout_mode", "spiral")
+    store.setValue("max_crop", "0.9")
+    store.setValue("render_threads", "0")
+    store.setValue("titles", "always")
+    store.setValue("layout_effort", "nan")
+    store.setValue("recent_limit", "-3")
+    store.setValue("max_gpu_tiles", "-1")
+    store.setValue("hide_cursor_ms", "1e9")
+    store.setValue("config_version", "x")
+    store.sync()
+    cfg = Config.load()
+    defaults = Config()
+    assert cfg.gap == defaults.gap
+    assert cfg.layout_mode == defaults.layout_mode
+    assert cfg.max_crop == 0.4  # clamped
+    assert cfg.render_threads == 1
+    assert cfg.titles == "always"  # valid values still load
+    assert cfg.layout_effort == defaults.layout_effort  # NaN would pass a clamp
+    assert (cfg.recent_limit, cfg.max_gpu_tiles, cfg.hide_cursor_ms) == (0, 0, 60000)
+
+
+def test_save_and_load_round_trip(isolated_settings):
+    QSettings("mosaicplayer", "mosaicplayer").clear()
+    cfg = Config(gap=6, layout_mode="rows", recent_files=["/a.gpls"], start_muted=False)
+    cfg.save()
+    again = Config.load()
+    assert (again.gap, again.layout_mode, again.recent_files, again.start_muted) == \
+        (6, "rows", ["/a.gpls"], False)
+
+
+def test_ctrl_c_and_sigterm_close_cleanly(tmp_path):
+    import os
+    import shutil
+    import signal
+    import subprocess
+    import sys
+    import time
+
+    import pytest
+    if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")) or not shutil.which("ffmpeg"):
+        pytest.skip("needs a display and ffmpeg")
+    clip = tmp_path / "c.mp4"
+    subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-f", "lavfi", "-i",
+                    "testsrc2=size=320x180:rate=25:duration=3", "-pix_fmt", "yuv420p", str(clip)],
+                   check=True)
+    env = dict(os.environ, MOSAICPLAYER_NO_VSYNC="1", XDG_CONFIG_HOME=str(tmp_path / "config"),
+               PYTHONPATH=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        proc = subprocess.Popen([sys.executable, "-m", "mosaicplayer", str(clip), "--no-save-config"],
+                                env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        time.sleep(4)
+        proc.send_signal(sig)
+        out, _ = proc.communicate(timeout=10)
+        assert proc.returncode == 0, (sig, out.decode()[-800:])
+        assert b"Destroyed while thread" not in out
+
+
+def test_command_line_overrides_are_not_saved(isolated_settings):
+    from mosaicplayer.__main__ import apply_overrides
+    QSettings("mosaicplayer", "mosaicplayer").clear()
+    Config(layout_mode="puzzle", gap=2).save()
+    cfg = Config.load()
+    apply_overrides(cfg, {"layout_mode": "rows", "gap": 10})
+    assert cfg.layout_mode == "rows" and cfg.gap == 10  # in effect for this run
+    cfg.save()
+    again = Config.load()
+    assert again.layout_mode == "puzzle" and again.gap == 2  # not saved
+    cfg.gap = 6  # changed in the app afterwards and saved as default
+    cfg.save_as_default(["gap"])
+    assert Config.load().gap == 6
+    assert Config.load().layout_mode == "puzzle"
+    apply_overrides(cfg, {"decoder_mode": "cpu"})
+    cfg.save()
+    assert Config.load().decoder_mode == "auto"  # a global setting override isn't saved either
+
+
+def test_settings_from_the_old_name_are_imported_once(isolated_settings):
+    from mosaicplayer.config import import_old_settings
+    for name in ("mosaicplayer", "window"):
+        QSettings("mosaicplayer", name).clear()
+    old = QSettings("gridmosaic", "gridmosaic")
+    old.setValue("max_crop", 0.0)
+    old.setValue("gap", 6)
+    old.sync()
+    QSettings("gridmosaic", "window").setValue("last_dir", "/videos")
+    import_old_settings()
+    cfg = Config.load()
+    assert (cfg.max_crop, cfg.gap) == (0.0, 6)
+    assert QSettings("mosaicplayer", "window").value("last_dir") == "/videos"
+    cfg.gap = 8
+    cfg.save_as_default()
+    import_old_settings()  # already has settings: not overwritten again
+    assert Config.load().gap == 8
+
+
+def test_playlist_settings_stay_out_of_the_defaults(isolated_settings):
+    QSettings("mosaicplayer", "mosaicplayer").clear()
+    cfg = Config.load()
+    cfg.layout_mode, cfg.gap, cfg.titles = "rows", 10, "always"  # from the menus
+    assert not cfg.is_default()
+    cfg.save()
+    saved = Config.load()
+    assert (saved.layout_mode, saved.gap) == ("puzzle", 2)  # playlist settings: not saved
+    assert saved.titles == "always"  # global settings are saved as before
+    cfg.use_defaults()
+    assert (cfg.layout_mode, cfg.gap) == ("puzzle", 2) and cfg.is_default()
+    cfg.layout_mode = "grid"
+    cfg.save_as_default()
+    assert Config.load().layout_mode == "grid"
+
+
+def test_settings_from_a_playlist_are_checked():
+    cfg = Config()
+    cfg.apply_playlist_settings({"layout_mode": "columns", "gap": 999, "max_crop": "nan",
+                                 "size_balance": "wobbly", "fixed_cols": True,
+                                 "end_action": "next", "decoder_mode": "cpu"})
+    assert cfg.layout_mode == "columns" and cfg.end_action == "next"
+    assert cfg.gap == 40  # clamped
+    assert cfg.max_crop == 0.15 and cfg.size_balance == "equal" and cfg.fixed_cols == 0
+    assert cfg.decoder_mode == "auto"  # not a playlist setting
+    cfg.apply_playlist_settings("not a dict")

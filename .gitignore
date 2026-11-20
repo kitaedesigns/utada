@@ -1,4 +1,15 @@
+# Python (from upstream MosaicPlayer)
+__pycache__/
+*.pyc
+.pytest_cache/
+build/
+dist/
+*.egg-info/
+.venv/
+
+# This project
 testmedia/
 /target/
-dist/
 *.log
+# libmpv and archive tool fetched by tools/get_libmpv.ps1 (not committed)
+vendor/
