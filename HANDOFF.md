@@ -5,7 +5,7 @@ Last cloud session ended at the Phase 1 decision gate (2026-11-19). Continue on 
 ## Before you start
 1. Clone and check out the branch:
    `git clone https://github.com/kitaedesigns/utada; cd utada; git checkout claude/multi-video-player-build-5pxs6s`
-2. **Paste the full build plan again as the first message.** It is not saved in this repo. Also add: "R22 playlists and tags is in `docs/R22-playlists-and-tags.md`; read `PROGRESS.md` and `ARCHITECTURE.md` first."
+2. The full build plan is saved at `docs/BUILD-PLAN.md` (with R22 added). Tell the new session: "Read `docs/BUILD-PLAN.md`, `HANDOFF.md`, `PROGRESS.md`, `ARCHITECTURE.md` and `docs/R22-playlists-and-tags.md`, then continue Phase 1 on this Windows PC."
 
 ## What the next session should do (remaining Phase 1)
 1. Record GPU and driver: `Get-CimInstance Win32_VideoController | Select Name, DriverVersion`.
