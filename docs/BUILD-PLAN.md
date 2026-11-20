@@ -1,5 +1,6 @@
 > Saved verbatim from the original kickoff message (2026-11-18). Later additions live in separate files and take precedence where they conflict:
 > - **R22 Playlists and tags:** `docs/R22-playlists-and-tags.md` (tags go on videos; confirmed 2026-11-19). It replaces "Save playlist / Open playlist" in section 2.8.
+> - **Maximum 6 tiles on the wall** (decided on the Windows PC; see `PROGRESS.md`, Requirements changes). Overrides the 9/12-tile targets below.
 > - Current status and decisions: `PROGRESS.md`, `HANDOFF.md`, `ARCHITECTURE.md`.
 
 # Multi-Video "Compiled Talks" Player: Build Plan for Claude Code
