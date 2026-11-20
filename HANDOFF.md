@@ -6,8 +6,8 @@ Phase 1 approved 2026-11-20: **MosaicPlayer is the base**, merged into this repo
 `.\tools\dev.ps1 setup` once, then `.\tools\dev.ps1 run [files]` and `.\tools\dev.ps1 test` (pass pytest arguments quoted, e.g. `.\tools\dev.ps1 test 'tests/test_playlist.py' '-q'`).
 
 ## Before you start
-1. Branch `claude/multi-video-player-build-5pxs6s`. Paste the full build plan as the first message (it is not in this repo). Read `PROGRESS.md`, `ARCHITECTURE.md`, `docs/R22-playlists-and-tags.md`, `docs/phase1-decision.md`.
-2. Requirements added since the plan: R22 playlists and tags (tags on files/videos, smart tag-rule playlists included); **maximum 6 tiles on the wall** (see `PROGRESS.md`, Requirements changes).
+1. Branch `claude/multi-video-player-build-5pxs6s`. The full build plan is saved at `docs/BUILD-PLAN.md` (no need to paste it). Read it, then `PROGRESS.md`, `ARCHITECTURE.md`, `docs/R22-playlists-and-tags.md`, `docs/phase1-decision.md`.
+2. Requirements added since the plan: R22 playlists and tags (tags on files/videos, smart tag-rule playlists included); **maximum 6 tiles on the wall** (see `PROGRESS.md`, Requirements changes). Where these conflict with `docs/BUILD-PLAN.md`, they win.
 
 ## Local setup on the Windows PC (outside this repo)
 - `D:\Github\utada-candidates\MultipleVideoPlayer` (branch `utada-probe` = measurement patch, also in `tools/bench/mvp-probe.patch`); staged build in `RustPlayer\dist\MultipleVideoPlayer-0.6.2-win64\`.
