@@ -1,0 +1,113 @@
+{
+ "tiles": 6,
+ "hwdec": [
+  "no"
+ ],
+ "total_drops": 0,
+ "max_tile_drops": 0,
+ "min_speed": 0.999,
+ "min_drawn_per_s": 29.9,
+ "app_fps_mean": 138.2,
+ "app_fps_min": 118.0,
+ "cores_used": 2.0,
+ "cpu_pct_machine": 4.1,
+ "private_mb_peak": 1326.0,
+ "gpu_dedicated_mb_peak": 478.0,
+ "eng_videodecode": 0.0,
+ "eng_3d": 11.5,
+ "eng_copy": 0.0,
+ "smi_dec": 0.0,
+ "smi_gpu": 17.4,
+ "per_tile": [
+  {
+   "tile": 0,
+   "file": "hevc_10bit_60s.mp4",
+   "hwdec": [
+    "no"
+   ],
+   "wall_s": 31.1,
+   "speed": 0.999,
+   "container_fps": 29.978660583496094,
+   "est_vf_fps": 29.791547096763576,
+   "frame_drops": 0.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 30.0
+  },
+  {
+   "tile": 1,
+   "file": "hevc_10bit_60s.mp4",
+   "hwdec": [
+    "no"
+   ],
+   "wall_s": 31.1,
+   "speed": 0.999,
+   "container_fps": 29.978660583496094,
+   "est_vf_fps": 29.791547096763576,
+   "frame_drops": 0.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 29.9
+  },
+  {
+   "tile": 2,
+   "file": "hevc_10bit_60s.mp4",
+   "hwdec": [
+    "no"
+   ],
+   "wall_s": 31.1,
+   "speed": 1.0,
+   "container_fps": 29.978660583496094,
+   "est_vf_fps": 29.791547096763576,
+   "frame_drops": 0.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 30.0
+  },
+  {
+   "tile": 3,
+   "file": "hevc_10bit_60s.mp4",
+   "hwdec": [
+    "no"
+   ],
+   "wall_s": 31.1,
+   "speed": 0.999,
+   "container_fps": 29.978660583496094,
+   "est_vf_fps": 29.791547096763576,
+   "frame_drops": 0.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 29.9
+  },
+  {
+   "tile": 4,
+   "file": "hevc_10bit_60s.mp4",
+   "hwdec": [
+    "no"
+   ],
+   "wall_s": 31.1,
+   "speed": 0.999,
+   "container_fps": 29.978660583496094,
+   "est_vf_fps": 29.791547096763576,
+   "frame_drops": 0.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 30.0
+  },
+  {
+   "tile": 5,
+   "file": "hevc_10bit_60s.mp4",
+   "hwdec": [
+    "no"
+   ],
+   "wall_s": 31.1,
+   "speed": 0.999,
+   "container_fps": 29.978660583496094,
+   "est_vf_fps": 29.791547096763576,
+   "frame_drops": 0.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 30.0
+  }
+ ]
+}

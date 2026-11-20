@@ -1,0 +1,10 @@
+{
+  "app": "mosaic",
+  "name": "types",
+  "alive_during_run": true,
+  "exited_cleanly": true,
+  "exit_code": 0,
+  "private_mb": 628,
+  "video_decode_pct": 0.0,
+  "events": []
+}

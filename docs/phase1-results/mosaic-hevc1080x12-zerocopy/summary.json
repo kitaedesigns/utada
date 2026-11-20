@@ -1,0 +1,203 @@
+{
+ "tiles": 12,
+ "hwdec": [
+  "no"
+ ],
+ "total_drops": 35.0,
+ "max_tile_drops": 9.0,
+ "min_speed": 1.0,
+ "min_drawn_per_s": 59.7,
+ "app_fps_mean": 136.9,
+ "app_fps_min": 103.0,
+ "cores_used": 6.5,
+ "cpu_pct_machine": 13.6,
+ "private_mb_peak": 4961.0,
+ "gpu_dedicated_mb_peak": 2918.0,
+ "eng_videodecode": 0.0,
+ "eng_3d": 29.5,
+ "eng_copy": 0.0,
+ "smi_dec": 0.0,
+ "smi_gpu": 30.9,
+ "per_tile": [
+  {
+   "tile": 0,
+   "file": "hevc_1080_60.mp4",
+   "hwdec": [
+    "no"
+   ],
+   "wall_s": 31.3,
+   "speed": 1.001,
+   "container_fps": 60.0,
+   "est_vf_fps": 60.000000000000036,
+   "frame_drops": 4.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 59.9
+  },
+  {
+   "tile": 1,
+   "file": "hevc_1080_60.mp4",
+   "hwdec": [
+    "no"
+   ],
+   "wall_s": 31.3,
+   "speed": 1.001,
+   "container_fps": 60.0,
+   "est_vf_fps": 60.000000000000036,
+   "frame_drops": 1.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 60.0
+  },
+  {
+   "tile": 2,
+   "file": "hevc_1080_60.mp4",
+   "hwdec": [
+    "no"
+   ],
+   "wall_s": 31.3,
+   "speed": 1.001,
+   "container_fps": 60.0,
+   "est_vf_fps": 60.000000000000036,
+   "frame_drops": 0.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 60.0
+  },
+  {
+   "tile": 3,
+   "file": "hevc_1080_60.mp4",
+   "hwdec": [
+    "no"
+   ],
+   "wall_s": 31.3,
+   "speed": 1.0,
+   "container_fps": 60.0,
+   "est_vf_fps": 60.000000000000036,
+   "frame_drops": 0.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 60.0
+  },
+  {
+   "tile": 4,
+   "file": "hevc_1080_60.mp4",
+   "hwdec": [
+    "no"
+   ],
+   "wall_s": 31.3,
+   "speed": 1.0,
+   "container_fps": 60.0,
+   "est_vf_fps": 60.000000000000036,
+   "frame_drops": 9.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 59.7
+  },
+  {
+   "tile": 5,
+   "file": "hevc_1080_60.mp4",
+   "hwdec": [
+    "no"
+   ],
+   "wall_s": 31.3,
+   "speed": 1.001,
+   "container_fps": 60.0,
+   "est_vf_fps": 60.000000000000036,
+   "frame_drops": 5.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 59.8
+  },
+  {
+   "tile": 6,
+   "file": "hevc_1080_60.mp4",
+   "hwdec": [
+    "no"
+   ],
+   "wall_s": 31.3,
+   "speed": 1.0,
+   "container_fps": 60.0,
+   "est_vf_fps": 60.000000000000036,
+   "frame_drops": 4.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 59.9
+  },
+  {
+   "tile": 7,
+   "file": "hevc_1080_60.mp4",
+   "hwdec": [
+    "no"
+   ],
+   "wall_s": 31.3,
+   "speed": 1.0,
+   "container_fps": 60.0,
+   "est_vf_fps": 60.000000000000036,
+   "frame_drops": 2.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 59.9
+  },
+  {
+   "tile": 8,
+   "file": "hevc_1080_60.mp4",
+   "hwdec": [
+    "no"
+   ],
+   "wall_s": 31.3,
+   "speed": 1.0,
+   "container_fps": 60.0,
+   "est_vf_fps": 60.000000000000036,
+   "frame_drops": 4.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 59.9
+  },
+  {
+   "tile": 9,
+   "file": "hevc_1080_60.mp4",
+   "hwdec": [
+    "no"
+   ],
+   "wall_s": 31.3,
+   "speed": 1.0,
+   "container_fps": 60.0,
+   "est_vf_fps": 60.000000000000036,
+   "frame_drops": 3.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 59.8
+  },
+  {
+   "tile": 10,
+   "file": "hevc_1080_60.mp4",
+   "hwdec": [
+    "no"
+   ],
+   "wall_s": 31.3,
+   "speed": 1.0,
+   "container_fps": 60.0,
+   "est_vf_fps": 60.000000000000036,
+   "frame_drops": 0.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 60.0
+  },
+  {
+   "tile": 11,
+   "file": "hevc_1080_60.mp4",
+   "hwdec": [
+    "no"
+   ],
+   "wall_s": 31.3,
+   "speed": 1.0,
+   "container_fps": 60.0,
+   "est_vf_fps": 60.000000000000036,
+   "frame_drops": 3.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 59.9
+  }
+ ]
+}

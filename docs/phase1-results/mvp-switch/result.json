@@ -1,0 +1,10 @@
+{
+  "app": "mvp",
+  "name": "switch",
+  "alive_during_run": true,
+  "exited_cleanly": true,
+  "exit_code": 0,
+  "private_mb": 1041,
+  "video_decode_pct": 2.3,
+  "events": []
+}

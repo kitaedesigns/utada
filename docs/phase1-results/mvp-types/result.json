@@ -1,0 +1,10 @@
+{
+  "app": "mvp",
+  "name": "types",
+  "alive_during_run": true,
+  "exited_cleanly": true,
+  "exit_code": 0,
+  "private_mb": 1069,
+  "video_decode_pct": 1.5,
+  "events": []
+}

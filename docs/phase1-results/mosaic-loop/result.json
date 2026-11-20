@@ -1,0 +1,14 @@
+{
+  "app": "mosaic",
+  "name": "loop",
+  "alive_during_run": true,
+  "exited_cleanly": true,
+  "exit_code": 0,
+  "private_mb": 590,
+  "video_decode_pct": 0.0,
+  "events": [
+    "maximize@9s",
+    "800x500@12s",
+    "2400x1200@14s"
+  ]
+}

@@ -1,0 +1,113 @@
+{
+ "tiles": 6,
+ "hwdec": [
+  "d3d11va-copy"
+ ],
+ "total_drops": 1.0,
+ "max_tile_drops": 1.0,
+ "min_speed": 0.145,
+ "min_drawn_per_s": 8.7,
+ "app_fps_mean": 19.6,
+ "app_fps_min": 0.0,
+ "cores_used": 0.4,
+ "cpu_pct_machine": 0.8,
+ "private_mb_peak": 1294.0,
+ "gpu_dedicated_mb_peak": 933.0,
+ "eng_videodecode": 3.7,
+ "eng_3d": 6.1,
+ "eng_copy": 0.0,
+ "smi_dec": 3.7,
+ "smi_gpu": 27.0,
+ "per_tile": [
+  {
+   "tile": 0,
+   "file": "long_hevc_1080_60_10min.mp4",
+   "hwdec": [
+    "d3d11va-copy"
+   ],
+   "wall_s": 586.4,
+   "speed": 0.145,
+   "container_fps": 59.98078918457031,
+   "est_vf_fps": 59.98078740403463,
+   "frame_drops": 0.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 8.7
+  },
+  {
+   "tile": 1,
+   "file": "long_hevc_1080_60_10min.mp4",
+   "hwdec": [
+    "d3d11va-copy"
+   ],
+   "wall_s": 586.4,
+   "speed": 0.145,
+   "container_fps": 59.98078918457031,
+   "est_vf_fps": 59.98078740403463,
+   "frame_drops": 0.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 8.7
+  },
+  {
+   "tile": 2,
+   "file": "long_hevc_1080_60_10min.mp4",
+   "hwdec": [
+    "d3d11va-copy"
+   ],
+   "wall_s": 586.4,
+   "speed": 0.145,
+   "container_fps": 59.98078918457031,
+   "est_vf_fps": 59.98078740403463,
+   "frame_drops": 0.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 8.7
+  },
+  {
+   "tile": 3,
+   "file": "long_hevc_1080_60_10min.mp4",
+   "hwdec": [
+    "d3d11va-copy"
+   ],
+   "wall_s": 586.4,
+   "speed": 0.145,
+   "container_fps": 59.98078918457031,
+   "est_vf_fps": 59.98078740403463,
+   "frame_drops": 0.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 8.7
+  },
+  {
+   "tile": 4,
+   "file": "long_hevc_1080_60_10min.mp4",
+   "hwdec": [
+    "d3d11va-copy"
+   ],
+   "wall_s": 586.4,
+   "speed": 0.145,
+   "container_fps": 59.98078918457031,
+   "est_vf_fps": 59.98078740403463,
+   "frame_drops": 0.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 8.7
+  },
+  {
+   "tile": 5,
+   "file": "long_hevc_1080_60_10min.mp4",
+   "hwdec": [
+    "d3d11va-copy"
+   ],
+   "wall_s": 586.4,
+   "speed": 0.145,
+   "container_fps": 59.98078918457031,
+   "est_vf_fps": 59.98078740403463,
+   "frame_drops": 1.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 8.7
+  }
+ ]
+}

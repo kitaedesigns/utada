@@ -1,0 +1,113 @@
+{
+ "tiles": 6,
+ "hwdec": [
+  "nvdec"
+ ],
+ "total_drops": 0,
+ "max_tile_drops": 0,
+ "min_speed": 0.999,
+ "min_drawn_per_s": 60.0,
+ "app_fps_mean": 141.1,
+ "app_fps_min": 97.2,
+ "cores_used": 1.1,
+ "cpu_pct_machine": 2.2,
+ "private_mb_peak": 3946.0,
+ "gpu_dedicated_mb_peak": 2882.0,
+ "eng_videodecode": 16.4,
+ "eng_3d": 36.5,
+ "eng_copy": 0.0,
+ "smi_dec": 16.5,
+ "smi_gpu": 27.5,
+ "per_tile": [
+  {
+   "tile": 0,
+   "file": "long_hevc_1080_60_10min.mp4",
+   "hwdec": [
+    "nvdec"
+   ],
+   "wall_s": 586.4,
+   "speed": 0.999,
+   "container_fps": 59.98078918457031,
+   "est_vf_fps": 59.98078740403463,
+   "frame_drops": 0.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 60.0
+  },
+  {
+   "tile": 1,
+   "file": "long_hevc_1080_60_10min.mp4",
+   "hwdec": [
+    "nvdec"
+   ],
+   "wall_s": 586.4,
+   "speed": 1.0,
+   "container_fps": 59.98078918457031,
+   "est_vf_fps": 59.98078740403463,
+   "frame_drops": 0.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 60.0
+  },
+  {
+   "tile": 2,
+   "file": "long_hevc_1080_60_10min.mp4",
+   "hwdec": [
+    "nvdec"
+   ],
+   "wall_s": 586.4,
+   "speed": 1.0,
+   "container_fps": 59.98078918457031,
+   "est_vf_fps": 59.98078740403463,
+   "frame_drops": 0.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 60.0
+  },
+  {
+   "tile": 3,
+   "file": "long_hevc_1080_60_10min.mp4",
+   "hwdec": [
+    "nvdec"
+   ],
+   "wall_s": 586.4,
+   "speed": 1.0,
+   "container_fps": 59.98078918457031,
+   "est_vf_fps": 59.98078740403463,
+   "frame_drops": 0.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 60.0
+  },
+  {
+   "tile": 4,
+   "file": "long_hevc_1080_60_10min.mp4",
+   "hwdec": [
+    "nvdec"
+   ],
+   "wall_s": 586.4,
+   "speed": 1.0,
+   "container_fps": 59.98078918457031,
+   "est_vf_fps": 59.98078740403463,
+   "frame_drops": 0.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 60.0
+  },
+  {
+   "tile": 5,
+   "file": "long_hevc_1080_60_10min.mp4",
+   "hwdec": [
+    "nvdec"
+   ],
+   "wall_s": 586.4,
+   "speed": 1.0,
+   "container_fps": 59.98078918457031,
+   "est_vf_fps": 59.98078740403463,
+   "frame_drops": 0.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 60.0
+  }
+ ]
+}
