@@ -1,6 +1,6 @@
 # Progress
 
-## Status: Phase 1 approved 2026-11-20: **MosaicPlayer is the base.** Phase 2 groundwork done (below). Waiting for the build plan text to continue with Phase 2's numbered steps.
+## Status: Phase 1 approved 2026-11-20: **MosaicPlayer is the base.** Phase 2 groundwork done (below). The build plan is now in `docs/BUILD-PLAN.md`; next is Phase 2.1.
 
 ## Phase 2 groundwork (2026-11-20)
 - MosaicPlayer's history merged into this repo at `004dd93` (remote `upstream`); `NOTICE.md` added; the project is GPL-3.0-or-later.
@@ -90,11 +90,20 @@ Both builds give identical results: JPG, PNG, WebP, BMP, TIFF, AVIF, **HEIC** (s
 ## Decisions made
 - Benchmarks run full screen with tiles muted; long runs (10 min) windowed so the PC stays usable.
 - Screenshots capture only the test app's own window (`PrintWindow`), never the whole screen.
-- No upstream code copied into this repo yet, so no `NOTICE.md`/`LICENSES.md` yet.
+- MosaicPlayer merged 2026-11-20; `NOTICE.md` added. `LICENSES.md` comes in Phase 4.
+- Rendering stays on OpenGL. Plan 2.12A asks for mpv on Direct3D 11 (`gpu-api=d3d11`), but libmpv's render API, which lets the app draw controls over video, only supports OpenGL. Direct3D 11 would mean a native child window per tile and the "airspace" problem (plan 2.4). Hardware decode is unaffected.
+- Where the plan says 9 or 12 tiles (layout, hover, zoom and sidebar acceptance, "drop 9 files", the 30-minute soak, the Enhance cost test), use 6, the wall maximum. Plan Phase 3 step 2 ("max simultaneously playing tiles") is covered by the 6-tile cap.
+
+## Plan vs. MosaicPlayer: changes Phase 2 must make
+- **Remove (plan rule 7 and the out-of-scope list):** the update check (`support.py`, network call), Open URL and yt-dlp (network sources), "Random positions" and the speed setting.
+- **Remove the menu bar:** plan 2.14 puts the main controls in a footer, with nothing in a header.
+- **Fit, not crop, by default:** MosaicPlayer crops to fill (`panscan=1.0`); plan 2.3 wants the full frame (`panscan=0`), with crop as an opt-in setting.
+- **Settings:** MosaicPlayer stores them with `QSettings`; plan 2.8 wants a versioned `%APPDATA%\<AppName>\settings.json`.
+- **Hotkeys that clash with plan section 7:** Space and M act on all videos (the plan: hovered tile); Ctrl+M shows the menu bar (the plan: master mute); T is stay-on-top (the plan: tags; Ctrl+T is stay-on-top); F is a second full-screen key; S and R are random positions and puzzle reshuffle.
 
 ## Open questions for you
 1. ~~Approve the 1.5 decision~~ Approved 2026-11-20: MosaicPlayer.
-2. Paste the full build plan so Phase 2 follows its numbered steps.
+2. ~~Paste the full build plan~~ Saved as `docs/BUILD-PLAN.md` (2026-11-20). The mockup it refers to (2.14) is your "Video Wall Mockup" artifact; I'll read it when the layout and hover-bar work starts.
 3. Optional: one real iPhone HEIC photo, to confirm tile-grid HEIC decoding.
 4. R22: smart (tag-rule) playlists are included, per your instruction.
 5. The app's name (for the window title, `%APPDATA%\<AppName>`, installer). Until then the code keeps the `mosaicplayer` package name.
