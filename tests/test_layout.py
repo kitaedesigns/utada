@@ -276,3 +276,30 @@ def test_balanced_sits_between_equal_and_fill():
     assert equal.rects != balanced.rects
     assert equal.coverage < balanced.coverage <= fill.coverage + 0.01
     assert equal.size_spread < balanced.size_spread < fill.size_spread
+
+
+def test_auto_grid_shows_whole_pictures_at_any_window_shape():
+    """Plan 2.3: 1, 2, 3, 4 and 6 tiles; every picture whole (aspect kept, nothing
+    cropped or stretched), inside the window, not overlapping."""
+    from mosaicplayer.layout import grid_layout
+    shapes = {"16:9": (1920, 1080), "4:3": (1600, 1200), "portrait": (900, 1600),
+              "21:9": (3440, 1440)}
+    pictures = [16 / 9, 9 / 16, 4 / 3, 1.0, 16 / 9, 3 / 2]
+    for name, (w, h) in shapes.items():
+        for n in (1, 2, 3, 4, 6):
+            aspects = pictures[:n]
+            result = grid_layout(aspects, w, h, gap=2)
+            assert len(result.rects) == n, (name, n)
+            for r, a in zip(result.rects, aspects):
+                assert r.x >= -1e-6 and r.y >= -1e-6, (name, n)
+                assert r.x + r.w <= w + 1e-6 and r.y + r.h <= h + 1e-6, (name, n)
+                assert abs(r.w / r.h - a) < 1e-6, (name, n)  # whole picture, not stretched
+            assert result.max_crop < 1e-6, (name, n)
+            for i, a in enumerate(result.rects):
+                for b in result.rects[i + 1:]:
+                    overlap_w = min(a.x + a.w, b.x + b.w) - max(a.x, b.x)
+                    overlap_h = min(a.y + a.h, b.y + b.h) - max(a.y, b.y)
+                    assert overlap_w <= 1e-6 or overlap_h <= 1e-6, (name, n)
+    # One file fills the window as far as its shape allows.
+    one = grid_layout([16 / 9], 1920, 1080).rects[0]
+    assert (one.w, one.h) == (1920, 1080)

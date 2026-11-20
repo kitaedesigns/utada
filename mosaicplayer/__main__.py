@@ -13,6 +13,7 @@ from PySide6.QtCore import QSocketNotifier, QTimer
 from PySide6.QtGui import QIcon, QSurfaceFormat
 from PySide6.QtWidgets import QApplication
 
+from . import APP_NAME
 from .layout import LAYOUT_MODES
 from .options import DECODER_MODES
 
@@ -122,7 +123,7 @@ def main(argv=None):
     # The program name becomes the window's X11 class name; with "python -m"
     # it would be "__main__.py".
     app = QApplication(["mosaicplayer"])
-    app.setApplicationName("MosaicPlayer")
+    app.setApplicationName(APP_NAME)
     app.setOrganizationName("mosaicplayer")
     # Matches mosaicplayer.desktop, so the menu entry and the taskbar button
     # are recognised as the same app (and show its icon).
@@ -145,15 +146,15 @@ def main(argv=None):
         if "mpv" not in str(e).lower():
             raise
         if sys.platform == "win32":
-            hint = "Put libmpv-2.dll (from an mpv 'dev' build) next to MosaicPlayer."
+            hint = "Put libmpv-2.dll (from an mpv 'dev' build) next to the app."
         else:
             hint = ("Install it, e.g. 'sudo apt install libmpv2' (Debian/Ubuntu/Mint) or\n"
                     "'sudo dnf install mpv-libs' (Fedora).")
-        message = f"MosaicPlayer needs the mpv library (libmpv), which wasn't found.\n{hint}"
+        message = f"{APP_NAME} needs the mpv library (libmpv), which wasn't found.\n{hint}"
         print(message, file=sys.stderr)
         if getattr(sys, "frozen", False):  # no terminal to read it in
             from PySide6.QtWidgets import QMessageBox
-            QMessageBox.critical(None, "MosaicPlayer", message)
+            QMessageBox.critical(None, APP_NAME, message)
         return 1
 
     import_old_settings()

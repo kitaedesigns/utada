@@ -58,6 +58,7 @@ class Canvas(QOpenGLWidget):
         self.layout_info: LayoutResult | None = None
         self.solo: Tile | None = None
         self.hovered: Tile | None = None
+        self.last_hovered: Tile | None = None  # stays when the mouse leaves the wall
         self.show_hud = False
         self._seed = 0
         self._layout_generation = 0
@@ -127,7 +128,8 @@ class Canvas(QOpenGLWidget):
 
     def _add_tile(self, entry: Entry) -> Tile:
         tile = Tile(entry, self.policy, self.cfg.end_action, self.cfg.scaling, self,
-                    background=self.cfg.background, checker=self.cfg.transparency == "checker")
+                    background=self.cfg.background, checker=self.cfg.transparency == "checker",
+                    crop=self.cfg.max_crop > 0)
         tile.aspect_changed.connect(lambda t=tile: self._on_aspect(t))
         tile.failed.connect(self.update)
         tile.reached_end.connect(lambda t=tile: self._on_reached_end(t))
@@ -137,6 +139,16 @@ class Canvas(QOpenGLWidget):
             self._unassigned.append(tile)
         self.tiles.append(tile)
         return tile
+
+    @property
+    def current(self) -> Tile | None:
+        """The tile keyboard commands act on (plan 2.3), in this order: the one
+        under the mouse; the focused one; the one last under the mouse; the
+        only one. (Selected tiles join this list with multi-select in 2.10.)"""
+        for tile in (self.hovered, self.solo, self.last_hovered):
+            if tile is not None and tile in self.tiles:
+                return tile
+        return self.tiles[0] if len(self.tiles) == 1 else None
 
     @property
     def room(self) -> int:
@@ -187,6 +199,8 @@ class Canvas(QOpenGLWidget):
         tile.deleteLater()
         if self.hovered is tile:
             self.hovered = None
+        if self.last_hovered is tile:
+            self.last_hovered = None  # don't keep a closed player alive
 
     def remove_tile(self, tile: Tile):
         if tile not in self.tiles:
@@ -259,10 +273,11 @@ class Canvas(QOpenGLWidget):
         self.message.emit(f"{tile.title}: the GPU can't decode this video; "
                           "it plays with software decoding")
 
-    def apply_background(self):
-        """Settings changed: what transparent pixels show, in every tile."""
+    def apply_look(self):
+        """Settings changed: background, transparency and cropping, in every tile."""
         for t in self.tiles:
-            t.set_background(self.cfg.background, self.cfg.transparency == "checker")
+            t.set_look(self.cfg.background, self.cfg.transparency == "checker",
+                       self.cfg.max_crop > 0)
 
     def _on_reached_end(self, tile: Tile):
         if tile not in self.tiles:
@@ -707,6 +722,8 @@ class Canvas(QOpenGLWidget):
         if self._dragging:
             self.setCursor(Qt.ClosedHandCursor)
         tile = self.tile_at(pos)
+        if tile is not None:
+            self.last_hovered = tile
         if tile is not self.hovered:
             self.hovered = tile
             self.update()
@@ -902,21 +919,28 @@ class Canvas(QOpenGLWidget):
             return
         tile.replace(random.choice(choices))
 
+    def _hidden_paused(self) -> bool:
+        """Focus mode with "pause others while focused" (plan 2.3, default on)."""
+        return self.solo is not None and self.cfg.pause_others_when_focused
+
     def set_all_paused(self, paused: bool):
         # While one video is focused, the hidden ones stay paused regardless.
-        for t in [self.solo] if self.solo else self.tiles:
+        for t in [self.solo] if self._hidden_paused() else self.tiles:
             t.set_paused(paused)
         self.update()
 
     def all_paused(self) -> bool:
-        if self.solo:
+        if self._hidden_paused():
             return self.solo.paused
-        return bool(self.tiles) and all(t.paused for t in self.tiles)
+        playable = [t for t in self.tiles if t.entry.kind != IMAGE]  # stills don't pause
+        return bool(playable) and all(t.paused for t in playable)
 
     def resume_after_minimize(self):
-        """Restore each video's own paused state (hidden ones stay paused in focus mode)."""
+        """Restore each video's own paused state (hidden ones stay paused in focus
+        mode, unless "pause others while focused" is off)."""
         for t in self.tiles:
-            t.player.pause = True if (self.solo and t is not self.solo) else t.entry.paused
+            hidden = self._hidden_paused() and t is not self.solo
+            t.player.pause = True if hidden else t.entry.paused
 
     def set_all_muted(self, muted: bool):
         for t in self.tiles:

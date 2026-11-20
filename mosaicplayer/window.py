@@ -11,7 +11,7 @@ from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (QDialog, QFileDialog, QInputDialog, QLabel, QMainWindow,
                                QMenu, QMessageBox, QVBoxLayout)
 
-from . import __version__
+from . import APP_NAME, __version__
 from .canvas import MAX_TILES, Canvas
 from .config import PLAYLIST_FIELDS, Config
 from .layout import BALANCE_MODES, LAYOUT_MODES
@@ -22,25 +22,26 @@ from .settings_dialog import RELOAD_FIELDS, SettingsDialog
 from .support import log_dir
 from .options import END_ACTIONS
 
-HELP = """<h3>MosaicPlayer keys</h3><table cellspacing=4>
+HELP = f"""<h3>{APP_NAME} keys</h3><table cellspacing=4>
 <tr><td><b>Space</b></td><td>pause / play all</td><td><b>Click</b></td><td>pause one</td></tr>
 <tr><td><b>M</b></td><td>mute / unmute all</td><td><b>Middle-click</b></td><td>mute / unmute one</td></tr>
-<tr><td><b>Wheel</b></td><td>seek ±5 s (Shift ±30 s)</td><td><b>← →</b></td><td>seek hovered video (GIF, image: previous / next in folder)</td></tr>
+<tr><td><b>Wheel</b></td><td>seek ±5 s (Shift ±30 s)</td><td><b>← →</b></td><td>seek current video (GIF, image: previous / next in folder)</td></tr>
 <tr><td><b>Ctrl+wheel</b></td><td>zoom into the hovered video</td><td><b>Z</b></td><td>reset zoom</td></tr>
 <tr><td><b>Double-click</b>, <b>Enter</b></td><td>focus one video</td><td><b>Esc</b></td><td>show all / leave fullscreen</td></tr>
-<tr><td><b>Drag</b> a video</td><td>swap it with another</td><td><b>Del</b></td><td>remove hovered video</td></tr>
+<tr><td><b>Drag</b> a video</td><td>swap it with another</td><td><b>Del</b></td><td>remove current tile</td></tr>
 <tr><td><b>1</b>–<b>5</b></td><td>puzzle, rows, columns, grid, fixed grid</td><td><b>R</b></td><td>reshuffle puzzle</td></tr>
 <tr><td><b>C</b></td><td>allow cropping on / off</td><td><b>[ ]</b></td><td>gap smaller / bigger</td></tr>
 <tr><td><b>B</b></td><td>puzzle tile sizes: equal / balanced / fill</td><td></td><td></td></tr>
-<tr><td><b>+ / −</b>, <b>Alt+wheel</b></td><td>make hovered video bigger / smaller</td><td><b>0</b></td><td>normal size</td></tr>
+<tr><td><b>+ / −</b>, <b>Alt+wheel</b></td><td>make current tile bigger / smaller</td><td><b>0</b></td><td>normal size</td></tr>
 <tr><td><b>N</b></td><td>random video from the same folder</td><td><b>S</b></td><td>random positions for all</td></tr>
-<tr><td><b>Y</b></td><td>sync all to hovered video's time</td><td><b>Home</b></td><td>restart all</td></tr>
+<tr><td><b>Y</b></td><td>sync all to current video's time</td><td><b>Home</b></td><td>restart all</td></tr>
 <tr><td><b>F</b>, <b>F11</b></td><td>fullscreen</td><td><b>H</b></td><td>stats overlay</td></tr>
 <tr><td><b>T</b></td><td>stay on top</td><td><b>Ctrl+M</b></td><td>show / hide the menu bar</td></tr>
 <tr><td><b>Ctrl+O</b></td><td>open videos</td><td><b>Ctrl+Shift+O</b></td><td>add folder (with subfolders)</td></tr>
 <tr><td><b>Ctrl+L</b></td><td>open playlist</td><td></td><td></td></tr>
 <tr><td><b>Ctrl+S</b></td><td>save playlist</td><td><b>Ctrl+Shift+S</b></td><td>save playlist as</td></tr>
 <tr><td><b>Ctrl+N</b>, <b>Ctrl+W</b></td><td>new: clear all videos</td><td><b>Ctrl+Q</b></td><td>quit</td></tr>
+<tr><td colspan=4><i>Current tile: the one under the mouse, else the focused one, else the last one under the mouse, else the only one.</i></td></tr>
 <tr><td><b>Ctrl+,</b></td><td>settings</td><td><b>F1</b>, <b>?</b></td><td>this help</td></tr>
 </table>"""
 
@@ -84,7 +85,7 @@ class MainWindow(QMainWindow):
     def __init__(self, config: Config):
         super().__init__()
         self.cfg = config
-        self.setWindowTitle("MosaicPlayer")
+        self.setWindowTitle(APP_NAME)
         self.resize(1600, 900)
         self.setAcceptDrops(True)
         self._store = QSettings("mosaicplayer", "window")
@@ -150,9 +151,10 @@ class MainWindow(QMainWindow):
         else:
             tile.seek(5 * step)
 
-    def _hovered(self, fn):
+    def _current(self, fn):
+        """An action on the current tile (Canvas.current: plan 2.3's rule), if any."""
         def run(*_):
-            tile = self.canvas.hovered
+            tile = self.canvas.current
             if tile is not None:
                 fn(tile)
         return run
@@ -181,7 +183,7 @@ class MainWindow(QMainWindow):
         self._act(m, "Mute / unmute all", self.toggle_mute_all, ["M"])
         self._act(m, "Restart all", c.restart_all, ["Home"])
         self._act(m, "Random positions for all", lambda: [t.seek_random() for t in c.tiles], ["S"])
-        self._act(m, "Sync all to hovered video", self._hovered(c.sync_to), ["Y"])
+        self._act(m, "Sync all to the current video", self._current(c.sync_to), ["Y"])
         speed = m.addMenu("Speed for all")
         for rate in SPEEDS:
             self._act(speed, f"{rate:g}×", lambda _=False, r=rate: c.set_all_speed(r))
@@ -195,19 +197,19 @@ class MainWindow(QMainWindow):
             self.end_actions[key] = act
         m.addSeparator()
         # On a GIF or image tile, Left/Right flip through the folder instead.
-        self._act(m, "Seek hovered back 5 s (GIF, image: previous in folder)",
-                  self._hovered(lambda t: self._left_right(t, -1)), ["Left"])
-        self._act(m, "Seek hovered forward 5 s (GIF, image: next in folder)",
-                  self._hovered(lambda t: self._left_right(t, 1)), ["Right"])
-        self._act(m, "Replace hovered with random from its folder",
-                  self._hovered(c.replace_with_random), ["N"])
-        self._act(m, "Reset zoom of hovered video", self._hovered(lambda t: t.reset_zoom()), ["Z"])
-        self._act(m, "Make hovered video bigger", self._hovered(lambda t: c.resize_tile(t, 1)),
+        self._act(m, "Seek back 5 s (GIF, image: previous in folder)",
+                  self._current(lambda t: self._left_right(t, -1)), ["Left"])
+        self._act(m, "Seek forward 5 s (GIF, image: next in folder)",
+                  self._current(lambda t: self._left_right(t, 1)), ["Right"])
+        self._act(m, "Replace current with random from its folder",
+                  self._current(c.replace_with_random), ["N"])
+        self._act(m, "Reset zoom of current tile", self._current(lambda t: t.reset_zoom()), ["Z"])
+        self._act(m, "Make current tile bigger", self._current(lambda t: c.resize_tile(t, 1)),
                   ["+", "=", "Shift+="])
-        self._act(m, "Make hovered video smaller", self._hovered(lambda t: c.resize_tile(t, -1)),
+        self._act(m, "Make current tile smaller", self._current(lambda t: c.resize_tile(t, -1)),
                   ["-"])
-        self._act(m, "Normal size for hovered video", self._hovered(c.reset_tile_size), ["0"])
-        self._act(m, "Remove hovered video", self._hovered(c.remove_tile), ["Del"])
+        self._act(m, "Normal size for current tile", self._current(c.reset_tile_size), ["0"])
+        self._act(m, "Remove current tile", self._current(c.remove_tile), ["Del"])
 
         m = self.layout_menu = bar.addMenu("&Layout")
         group = QActionGroup(self)
@@ -238,7 +240,7 @@ class MainWindow(QMainWindow):
         self._act(m, "Smaller gap", lambda: self.set_gap(self.cfg.gap - 2), ["["])
         self._act(m, "Bigger gap", lambda: self.set_gap(self.cfg.gap + 2), ["]"])
         m.addSeparator()
-        self._act(m, "Focus hovered video", self._hovered(c.set_solo), ["Return", "Enter"])
+        self._act(m, "Focus current tile", self._current(c.set_solo), ["Return", "Enter"])
         self._act(m, "Show all", lambda: c.set_solo(None))
 
         m = self.view_menu = bar.addMenu("&View")
@@ -270,7 +272,7 @@ class MainWindow(QMainWindow):
         m = self.help_menu = bar.addMenu("&Help")
         self._act(m, "Keyboard and mouse", self.show_help, ["F1", "?", "Shift+?"])
         self._act(m, "Open log folder", self.open_log_folder)
-        self._act(m, "About MosaicPlayer", self.show_about)
+        self._act(m, f"About {APP_NAME}", self.show_about)
 
     def _fill_recent(self):
         self.recent_menu.clear()
@@ -400,6 +402,20 @@ class MainWindow(QMainWindow):
                     seen.add(key)
                     fresh.append(e)
             entries = fresh
+        if self.cfg.one_at_a_time and entries:
+            # "Open one file at a time" (plan 2.3, R20): like a single-file media
+            # player, a new file takes the place of the current one.
+            for e in entries[1:]:
+                skipped.add("One file at a time is on. Not added", Path(e.path).name)
+            complete = complete and len(entries) == 1
+            current = target if target in c.tiles else c.current
+            if current is None and c.tiles:
+                current = c.tiles[0]
+            if current is not None:
+                self._replace(current, entries[0], skipped.text() if skipped else "",
+                              quiet=True)
+                return
+            entries = entries[:1]
         replacement = None
         room = c.room
         if len(entries) > room:
@@ -455,11 +471,15 @@ class MainWindow(QMainWindow):
             f"The wall is full. Click the tile to replace with “{Path(entry.path).name}”"
             "  •  Esc cancels", lambda tile: self._replace(tile, entry))
 
-    def _replace(self, tile: Tile, entry: Entry, note: str = ""):
+    def _replace(self, tile: Tile, entry: Entry, note: str = "", quiet=False):
+        """Show ``entry`` in ``tile``. ``quiet``: no "Replaced" notice (one file at
+        a time, where replacing is simply how opening works)."""
         old = tile.title
         self.canvas.replace_tile(tile, entry.path)
-        text = f"Replaced {old} with {Path(entry.path).name}"
-        self.toast(f"{text}\n{note}" if note else text, NOTICE_MS if note else 3500)
+        text = "" if quiet else f"Replaced {old} with {Path(entry.path).name}"
+        text = "\n".join(t for t in (text, note) if t)
+        if text:
+            self.toast(text, NOTICE_MS if note else 3500)
 
     def _remember_playlist(self, path: str, save_target=True):
         if save_target and Path(path).suffix.lower() == ".gpls":
@@ -625,7 +645,9 @@ class MainWindow(QMainWindow):
         finally:
             self._syncing_menus = False
         self.canvas.set_all_end_action(self.cfg.end_action)
-        self.canvas.apply_background()
+        self.canvas.apply_look()
+        if self.canvas.solo is not None and not self._paused_by_minimize:
+            self.canvas.resume_after_minimize()  # "pause others while focused" may have changed
         self._apply_window_config()
         self.canvas.schedule_relayout()
         self.canvas.update()
@@ -706,6 +728,7 @@ class MainWindow(QMainWindow):
             self._crop_when_on = self.cfg.max_crop
         self.cfg.max_crop = self._crop_when_on if on else 0.0
         self.cfg.save()
+        self.canvas.apply_look()  # the players crop (or letterbox) to match
         self.canvas.schedule_relayout()
         self.toast(f"Cropping up to {self.cfg.max_crop:.0%} to fill gaps" if on
                    else "No cropping (may leave gaps)")
@@ -779,10 +802,11 @@ class MainWindow(QMainWindow):
 
     def show_about(self):
         QMessageBox.about(
-            self, "About MosaicPlayer",
-            f"<h3>MosaicPlayer {__version__}</h3>"
-            "<p>Play many videos at once, packed to fill the screen.</p>"
-            "<p>Built with mpv and Qt. Reads and writes GridPlayer playlists.</p>")
+            self, f"About {APP_NAME}",
+            f"<h3>{APP_NAME} {__version__}</h3>"
+            f"<p>Up to {MAX_TILES} videos, GIFs and images at once.</p>"
+            "<p>Based on MosaicPlayer by itsui. Built with mpv and Qt. "
+            "License: GPL-3.0-or-later.</p>")
 
     def toast(self, text: str, ms: int = 3500):
         self._toast.setText(text)
@@ -796,7 +820,7 @@ class MainWindow(QMainWindow):
     def _update_title(self):
         n = len(self.canvas.tiles)
         name = f" — {Path(self._playlist_path).stem}" if self._playlist_path else ""
-        self.setWindowTitle(f"MosaicPlayer{name} — {n} video{'s' * (n != 1)}" if n else "MosaicPlayer")
+        self.setWindowTitle(f"{APP_NAME}{name} — {n} file{'s' * (n != 1)}" if n else APP_NAME)
         self._empty.setVisible(n == 0)
 
     def changeEvent(self, event):

@@ -124,7 +124,8 @@ class Tile(QObject):
     _loaded = Signal()  # mpv thread -> UI thread
 
     def __init__(self, entry: Entry, policy: DecoderPolicy, end_action=LOOP,
-                 scaling="balanced", parent=None, background="#000000", checker=False):
+                 scaling="balanced", parent=None, background="#000000", checker=False,
+                 crop=False):
         super().__init__(parent)
         self.entry = entry
         self.policy = policy
@@ -175,9 +176,11 @@ class Tile(QObject):
             pause=entry.paused,
             speed=entry.rate,
             volume=entry.volume * 100,
-            # Fill the tile; the layout keeps any crop small.
+            # Whole picture, never stretched (plan 2.3). The layouts size tiles to
+            # the picture; panscan=0 letterboxes any leftover instead of cropping.
+            # With cropping allowed, fill the tile (the layout keeps the crop small).
             keepaspect="yes",
-            panscan=1.0,
+            panscan=1.0 if crop else 0.0,
             # Many players at once: keep each one lean.
             cache="no",
             demuxer_max_bytes="16MiB",
@@ -320,10 +323,11 @@ class Tile(QObject):
         return self._file_bytes[1]
 
     @_while_open
-    def set_background(self, color: str, checker: bool):
-        """What shows through transparent pixels (and around the picture)."""
+    def set_look(self, color: str, checker: bool, crop: bool):
+        """Background behind transparent pixels and around the picture; cropping."""
         self.player.background = "tiles" if checker else "color"
         self.player.background_color = color
+        self.player.panscan = 1.0 if crop else 0.0
 
     # --- rendering (render-worker thread, its GL context current) -----------
 

@@ -30,6 +30,11 @@
 
 ## The app as it stands (Phase 2, kept current)
 
+The app is **Diva Video Player** (`mosaicplayer.APP_NAME`); the Python package keeps the upstream name `mosaicplayer`.
+
+- **Layout:** the default is the auto grid (`layout.grid_layout`): each tile has its picture's shape inside an equal cell, and mpv letterboxes (`panscan=0`). Cropping (`max_crop > 0`, `panscan=1`) is opt-in.
+- **Keyboard target:** `Canvas.current` picks the tile under the mouse, else the focused one, else the last one under the mouse, else the only one. Window actions go through `MainWindow._current`.
+
 - **Wall model:** `Canvas.tiles` (`mosaicplayer/canvas.py`) is the ordered list the wall draws from; at most `MAX_TILES = 6`. Each `Tile` (`tile.py`) owns one long-lived mpv player and its media item, `tile.entry` (`playlist.Entry`: `id`, `path`, `kind`, volume, muted, ...). `Tile.replace(path)` loads another file into the same player.
 - **Adding media:** every way in goes through `MainWindow.load` (`window.py`): drops, File > Open, the command line and playlists. It filters by type (`playlist.media_kind`), existence and duplicates, enforces the 6-tile cap, and shows one notice for whatever it left out. On a full wall, a single file replaces a tile: the one it was dropped on, or the next one clicked (`Canvas.begin_pick`).
 - **Drag-and-drop feedback** is painted by the canvas over the video (`Canvas.drop_hint`, `Canvas.pick`), in the plan's blue accent.

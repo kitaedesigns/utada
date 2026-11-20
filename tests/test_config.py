@@ -111,10 +111,10 @@ def test_playlist_settings_stay_out_of_the_defaults(isolated_settings):
     assert not cfg.is_default()
     cfg.save()
     saved = Config.load()
-    assert (saved.layout_mode, saved.gap) == ("puzzle", 2)  # playlist settings: not saved
+    assert (saved.layout_mode, saved.gap) == ("grid", 2)  # playlist settings: not saved
     assert saved.titles == "always"  # global settings are saved as before
     cfg.use_defaults()
-    assert (cfg.layout_mode, cfg.gap) == ("puzzle", 2) and cfg.is_default()
+    assert (cfg.layout_mode, cfg.gap) == ("grid", 2) and cfg.is_default()
     cfg.layout_mode = "grid"
     cfg.save_as_default()
     assert Config.load().layout_mode == "grid"
@@ -127,7 +127,7 @@ def test_settings_from_a_playlist_are_checked():
                                  "end_action": "next", "decoder_mode": "cpu"})
     assert cfg.layout_mode == "columns" and cfg.end_action == "next"
     assert cfg.gap == 40  # clamped
-    assert cfg.max_crop == 0.15 and cfg.size_balance == "equal" and cfg.fixed_cols == 0
+    assert cfg.max_crop == 0.0 and cfg.size_balance == "equal" and cfg.fixed_cols == 0
     assert cfg.decoder_mode == "gpu-copy"  # not a playlist setting
     cfg.apply_playlist_settings("not a dict")
 
@@ -148,3 +148,20 @@ def test_v3_moves_old_decoder_defaults_to_the_gpu(isolated_settings):
     store.setValue("config_version", 2)
     store.sync()
     assert Config.load().decoder_mode == "cpu"
+
+
+def test_v4_shows_whole_pictures_in_a_grid(isolated_settings):
+    store = QSettings("mosaicplayer", "mosaicplayer")
+    store.clear()
+    store.setValue("layout_mode", "puzzle")  # MosaicPlayer's defaults, saved by a run
+    store.setValue("max_crop", 0.15)
+    store.setValue("config_version", 3)
+    store.sync()
+    cfg = Config.load()
+    assert (cfg.layout_mode, cfg.max_crop) == ("grid", 0.0)
+    assert cfg.is_default()  # and they are the defaults now, not playlist changes
+    store.setValue("layout_mode", "rows")  # your own choice stays
+    store.setValue("max_crop", 0.2)
+    store.setValue("config_version", 3)
+    store.sync()
+    assert (Config.load().layout_mode, Config.load().max_crop) == ("rows", 0.2)

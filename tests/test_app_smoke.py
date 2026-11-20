@@ -261,7 +261,9 @@ def test_keyboard_shortcuts(app, window, clips):
     key(Qt.Key_N, Qt.ControlModifier)  # File > New clears everything
     assert not c.tiles
     window.load([clips])
-    pump(app, 1.0)
+    deadline = time.monotonic() + 4  # the layout waits for the videos' sizes
+    while not c._layout_tiles and time.monotonic() < deadline:
+        pump(app, 0.05)
     c.hovered = c._layout_tiles[0]
     key(Qt.Key_M, Qt.ControlModifier)
     assert not window.menuBar().isVisible()
@@ -758,3 +760,81 @@ def test_animated_webp_plays_like_a_gif(app, window, media22):
     assert tile.entry.kind == "gif"
     tile.toggle_pause()
     assert tile.paused
+
+
+# --- Phase 2.3: tile layout ---------------------------------------------------------------
+
+
+def test_default_layout_is_a_grid_of_whole_pictures(app, window, clips):
+    c, cfg = window.canvas, window.cfg
+    assert (cfg.layout_mode, cfg.max_crop) == ("grid", 0.0)
+    window.load([clips])
+    pump(app, 2.5)
+    assert len(c.rects) == 6
+    assert all(t.player.panscan == 0.0 for t in c.tiles)  # letterbox, never crop
+    for tile, rect in zip(c._layout_tiles, c.rects):
+        assert abs(rect.w / rect.h - tile.aspect) < 0.02  # each tile has its picture's shape
+    window.set_crop(True)  # the opt-in "allow cropping"
+    assert all(t.player.panscan == 1.0 for t in c.tiles)
+    window.set_crop(False)
+    assert all(t.player.panscan == 0.0 for t in c.tiles)
+
+
+def test_keys_act_on_the_current_tile(app, window, clips):
+    c = window.canvas
+    window.load([clips / "c0.mp4"])
+    pump(app, 1.0)
+    only = c.tiles[0]
+    assert c.hovered is None and c.current is only  # one tile: that tile
+    window.load([clips / "c1.mp4", clips / "c2.mp4"])
+    pump(app, 1.0)
+    a, b, d = c.tiles
+    assert c.current is None  # several tiles, none hovered or focused yet
+    c.last_hovered = b  # the mouse was over b, then left the window
+    assert c.current is b
+    c.set_solo(d)
+    assert c.current is d  # the focused tile wins over the last hovered one
+    c.hovered = a
+    assert c.current is a  # the tile under the mouse wins over everything
+    c.hovered = None
+    c.set_solo(None)
+    window._current(c.remove_tile)()  # what Del does
+    assert b not in c.tiles and c.current is None
+
+
+def test_one_file_at_a_time(app, window, clips, media22):
+    c, cfg = window.canvas, window.cfg
+    cfg.one_at_a_time = True
+    window.load([clips / "c0.mp4"])
+    pump(app, 1.0)
+    tile = c.tiles[0]
+    tile.set_volume(0.4)
+    window.load([media22 / "a 1.jpg"])  # replaces, reusing the tile, its volume and mode
+    assert c.tiles == [tile] and tile.entry.path.endswith("a 1.jpg")
+    assert tile.entry.volume == 0.4
+    assert not window._toast.isVisible()  # opening is just opening: no "Replaced" notice
+    window.load([clips])  # a folder: its first file
+    assert c.tiles == [tile] and tile.entry.path.endswith("c0.mp4")
+    assert "One file at a time is on. Not added" in window._toast.text()
+    cfg.one_at_a_time = False
+    window.load([clips / "c1.mp4"])
+    assert len(c.tiles) == 2
+
+
+def test_focus_mode_round_trip_and_pausing_others(app, window, clips):
+    c, cfg = window.canvas, window.cfg
+    window.load([clips])
+    pump(app, 2.5)
+    before = list(c.rects)
+    focused = c.tiles[1]
+    c.set_solo(focused)
+    pump(app, 0.5)
+    assert len(c.rects) == 1 and c._layout_tiles == [focused]
+    assert all(t.player.pause for t in c.tiles if t is not focused)  # default: others pause
+    cfg.pause_others_when_focused = False
+    window._settings_changed()
+    pump(app, 0.3)
+    assert not any(t.player.pause for t in c.tiles)  # the setting off: all keep playing
+    window.escape()  # Esc leaves focus mode
+    pump(app, 0.5)
+    assert c.solo is None and c.rects == before  # back to the same layout

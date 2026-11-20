@@ -1,6 +1,37 @@
 # Progress
 
-## Status: Phase 2.2 done (2026-11-20). Next: 2.3 tile layout (fit instead of crop, auto grid, single-video use, focus mode).
+## Status: Phase 2.3 done (2026-11-20). Next: 2.4 hover controls (reads the "Video Wall Mockup" design first).
+
+**App name: Diva Video Player** (decided 2026-11-20). It's in the window title, dialogs and About box, which credits MosaicPlayer. The Python package and internal identifiers keep the name `mosaicplayer`. Settings, thumbnails and logs move to `%APPDATA%` / `%LOCALAPPDATA%\Diva Video Player` with the JSON settings in 2.8.
+
+## Phase 2.3: tile layout (R1, R6, R10, R20), done 2026-11-20
+**What changed**
+- **Auto grid by default, every picture whole.** The default layout is the auto grid: equal cells, with the column count that shows the most picture. Each tile takes its picture's shape inside its cell, and mpv letterboxes (`panscan=0`) instead of cropping (MosaicPlayer cropped by default). Rotation is handled (2.1).
+- **Cropping is opt-in.** The setting "Allow cropping up to" defaults to 0%; the C key and the menu turn it on and the players follow at once. The puzzle, justified and fixed-grid layouts are still in the Layout menu. Saved settings still at MosaicPlayer's defaults move over once (config v4).
+- **One file:** one tile fills the window (it already did).
+- **New setting "Open one file at a time" (off):** a file opened or dropped replaces the current tile, keeping its volume and end-of-clip mode, with no "Replaced" notice. With several files, only the first is used and the notice names the rest.
+- **Which tile keys act on (plan 2.3's rule)**, for every per-tile key (Space excepted: it is still "pause all" until the hotkey work):
+  1. the tile under the mouse;
+  2. else the focused tile;
+  3. else the tile last under the mouse (it stays "current" after the mouse leaves the window);
+  4. else the only tile.
+  Selected tiles join this rule with multi-select (2.10).
+- **Focus mode:** double-click or Enter focuses a tile; double-click again or Esc returns to the same layout. New setting "Pause the other videos while one is focused" (on). Turned off, the hidden tiles keep playing.
+- **Reordering** by dragging a tile onto another already worked (upstream); Del removes the current tile.
+
+**Bug found and fixed (test setup, inherited from MosaicPlayer):** on Windows the test suite wrote to, and cleared, the app's real settings in the registry (`HKCU\Software\mosaicplayer`), because Qt can't redirect registry settings to a temp folder. That's why the app opened with "rows" and 20% cropping after this session's test runs. Tests now use a temporary INI file on Windows, and the suite leaves the registry untouched. I deleted the test-written keys (`HKCU\Software\mosaicplayer` and `HKCU\Software\gridmosaic`, which held only test values such as `last_dir=/videos`); the app recreates them with defaults. Settings you had changed in MosaicPlayer during Phase 1 would already have been cleared by earlier test runs.
+
+**Acceptance (plan 2.3)**
+| Test | Result |
+|---|---|
+| 1, 2, 3, 4, 6 tiles at 16:9, 4:3, portrait and 21:9 windows: inside the window, no overlap, picture shape kept | Pass (unit test) |
+| 6 mixed files (4K, portrait, rotated photo, GIF, PNG, VP9) in the app | Pass: 3 × 2 grid, everything whole and letterboxed |
+| One file fills the window | Pass |
+| Focus mode round trip (same layout after) | Pass |
+| Removing a tile frees its player and memory | Pass (Phase 1: about 340 MB RAM and 390 MB GPU memory freed per 3 tiles; the closed-tile test still passes) |
+| Keyboard rule, one at a time, pause others | Pass (GUI tests) |
+
+**Suite:** pyflakes clean; unit 102 passed, 2 skipped, plus the 2 speed-sensitive layout tests; GUI 38 passed (4 new). Also 1 new layout test and 1 settings-migration test.
 
 ## Phase 2.2: media handling (R2, R3), done 2026-11-20
 **What changed**

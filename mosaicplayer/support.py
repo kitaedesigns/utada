@@ -9,7 +9,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QStandardPaths
 
-from . import __version__
+from . import APP_NAME, __version__
 
 
 def log_dir() -> Path:
@@ -32,7 +32,7 @@ def setup_logging(debug: bool) -> None:
         pass  # read-only home or similar: terminal only
     logging.basicConfig(level=logging.DEBUG if debug else logging.INFO, handlers=handlers,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    logging.getLogger("mosaicplayer").info("MosaicPlayer %s on %s", __version__, sys.platform)
+    logging.getLogger("mosaicplayer").info("%s %s on %s", APP_NAME, __version__, sys.platform)
 
     def log_uncaught(kind, value, tb):
         logging.getLogger("mosaicplayer").error("Unexpected error", exc_info=(kind, value, tb))

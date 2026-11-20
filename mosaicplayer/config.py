@@ -9,7 +9,7 @@ from PySide6.QtCore import QSettings
 
 from .options import AUTO, GPU_COPY, LOOP
 
-CONFIG_VERSION = 3
+CONFIG_VERSION = 4
 
 # Allowed values for the settings that pick from a fixed set.
 CHOICES = {
@@ -66,10 +66,11 @@ def import_old_settings() -> None:
 
 @dataclass
 class Config:
-    # Layout
-    layout_mode: str = "puzzle"
+    # Layout. Plan 2.3: an auto grid, and every picture shown whole (never
+    # cropped or stretched). Cropping to fill is an opt-in setting.
+    layout_mode: str = "grid"
     gap: int = 2
-    max_crop: float = 0.15
+    max_crop: float = 0.0
     fixed_cols: int = 0  # 0 = automatic
     fixed_rows: int = 0
     size_balance: str = "equal"  # puzzle: equal / balanced / fill
@@ -80,6 +81,8 @@ class Config:
     end_action: str = LOOP
     start_random: bool = False
     pause_when_minimized: bool = True
+    pause_others_when_focused: bool = True  # focus mode: the hidden tiles pause
+    one_at_a_time: bool = False  # a new file replaces the current tile instead of adding
 
     # Adding files
     allow_duplicates: bool = False  # the same file on the wall twice
@@ -143,6 +146,13 @@ class Config:
                 cfg.decoder_mode = GPU_COPY
             if abs(cfg.gpu_budget_mpx - 1200.0) < 1e-9:
                 cfg.gpu_budget_mpx = 6000.0
+        if version < 4:
+            # v4: auto grid and whole pictures by default (plan 2.3). Values
+            # still at MosaicPlayer's defaults move; your own choices stay.
+            if cfg.layout_mode == "puzzle":
+                cfg.layout_mode = "grid"
+            if abs(cfg.max_crop - 0.15) < 1e-9:
+                cfg.max_crop = 0.0
         cfg._defaults = cfg.playlist_settings()
         return cfg
 

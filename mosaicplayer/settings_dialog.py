@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QCheckBox, QColorDialog, QComboBox, QDialog, QDia
                                QDoubleSpinBox, QFormLayout, QLabel, QPushButton, QSpinBox,
                                QTabWidget, QVBoxLayout, QWidget)
 
+from . import APP_NAME
 from .config import Config
 from .layout import BALANCE_MODES, LAYOUT_MODES
 from .options import DECODER_MODES, END_ACTIONS
@@ -35,7 +36,7 @@ def _note(text: str) -> QLabel:
 class SettingsDialog(QDialog):
     def __init__(self, config: Config, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("MosaicPlayer settings")
+        self.setWindowTitle(f"{APP_NAME} settings")
         self.setMinimumWidth(560)
         self._original = config
         self.result_config: Config | None = None
@@ -60,8 +61,9 @@ class SettingsDialog(QDialog):
         form.addRow("Packing mode", self.layout_mode)
         form.addRow("Gap between videos", self.gap)
         form.addRow("Allow cropping up to", self.max_crop)
-        form.addRow(_note("A little cropping lets the puzzle and justified layouts fill the "
-                          "screen with no black bars. 0% never crops."))
+        form.addRow(_note("0% (the default) always shows the whole picture. A little "
+                          "cropping fills tiles and lets the puzzle and justified layouts "
+                          "cover the screen with no black bars."))
         form.addRow("Fixed grid columns", self.fixed_cols)
         form.addRow("Fixed grid rows", self.fixed_rows)
         form.addRow("Puzzle: tile sizes", self.balance)
@@ -79,6 +81,10 @@ class SettingsDialog(QDialog):
                                     checked=c.allow_duplicates)
         self.recursive = QCheckBox("Dropped folders include their subfolders",
                                    checked=c.recursive_folders)
+        self.one_at_a_time = QCheckBox("Open one file at a time (a new file replaces the "
+                                       "current one)", checked=c.one_at_a_time)
+        self.pause_others = QCheckBox("Pause the other videos while one is focused",
+                                      checked=c.pause_others_when_focused)
         form = QFormLayout()
         form.addRow("When a video ends", self.end_action)
         form.addRow(self.start_muted)
@@ -86,6 +92,8 @@ class SettingsDialog(QDialog):
         form.addRow(self.pause_min)
         form.addRow(self.duplicates)
         form.addRow(self.recursive)
+        form.addRow(self.one_at_a_time)
+        form.addRow(self.pause_others)
         tabs.addTab(_page(form), "Playback")
 
         # Decoding
@@ -195,7 +203,10 @@ class SettingsDialog(QDialog):
         for check, value in ((self.start_muted, d.start_muted), (self.start_random, d.start_random),
                              (self.pause_min, d.pause_when_minimized),
                              (self.duplicates, d.allow_duplicates),
-                             (self.recursive, d.recursive_folders), (self.on_top, d.stay_on_top),
+                             (self.recursive, d.recursive_folders),
+                             (self.one_at_a_time, d.one_at_a_time),
+                             (self.pause_others, d.pause_others_when_focused),
+                             (self.on_top, d.stay_on_top),
                              (self.menubar, d.show_menubar), (self.start_fs, d.start_fullscreen),
                              (self.save_positions, d.save_positions),
                              (self.save_paused, d.save_paused)):
@@ -219,6 +230,8 @@ class SettingsDialog(QDialog):
             pause_when_minimized=self.pause_min.isChecked(),
             allow_duplicates=self.duplicates.isChecked(),
             recursive_folders=self.recursive.isChecked(),
+            one_at_a_time=self.one_at_a_time.isChecked(),
+            pause_others_when_focused=self.pause_others.isChecked(),
             decoder_mode=self.decoder_mode.currentData(),
             hwdec_api=self.hwdec_api.currentData(),
             gpu_budget_mpx=float(self.budget.value()),
