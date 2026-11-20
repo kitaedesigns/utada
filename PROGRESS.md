@@ -1,6 +1,12 @@
 # Progress
 
-## Status: Phase 1 (recon) complete on Windows. Waiting for your approval of the 1.5 decision report (`docs/phase1-decision.md`). No feature code until then.
+## Status: Phase 1 approved 2026-11-20: **MosaicPlayer is the base.** Phase 2 groundwork done (below). Waiting for the build plan text to continue with Phase 2's numbered steps.
+
+## Phase 2 groundwork (2026-11-20)
+- MosaicPlayer's history merged into this repo at `004dd93` (remote `upstream`); `NOTICE.md` added; the project is GPL-3.0-or-later.
+- `tools/dev.ps1 setup | run | test` (venv with Python 3.12, app + dev dependencies) and `tools/get_libmpv.ps1` (pinned libmpv 20261019, SHA-256 checked, into `vendor/`, git-ignored).
+- **Two Windows bugs fixed** in `mosaicplayer/playlist.py`: `file:///C:/...` URIs (VLC .m3u files, dropped URIs) became `/C:/...`; reading a Latin-1 .m3u crashed (`os.fsdecode` raises on Windows).
+- **Test suite green on Windows** (was 86 passed / 11 failed / 21 GUI tests skipped): 114 passed, 2 skipped (POSIX-only: signals; permission bits and symlinks), 2 marked speed-sensitive (100+ tile layout time budgets; non-strict xfail). Tests now use platform paths; GUI tests run on Windows; pytest's faulthandler is off on Windows (it crashed the test process while reporting LuaJIT's handled exceptions inside libmpv). `dev.ps1 test` runs lint, unit and GUI tests in separate processes, like upstream CI.
 
 ## Environment (Windows PC, measured 2026-11-19/20)
 | Item | Value |
@@ -87,6 +93,8 @@ Both builds give identical results: JPG, PNG, WebP, BMP, TIFF, AVIF, **HEIC** (s
 - No upstream code copied into this repo yet, so no `NOTICE.md`/`LICENSES.md` yet.
 
 ## Open questions for you
-1. Approve the 1.5 decision (`docs/phase1-decision.md`).
-2. Optional: one real iPhone HEIC photo, to confirm tile-grid HEIC decoding.
-3. R22: smart (tag-rule) playlists are included, per your instruction.
+1. ~~Approve the 1.5 decision~~ Approved 2026-11-20: MosaicPlayer.
+2. Paste the full build plan so Phase 2 follows its numbered steps.
+3. Optional: one real iPhone HEIC photo, to confirm tile-grid HEIC decoding.
+4. R22: smart (tag-rule) playlists are included, per your instruction.
+5. The app's name (for the window title, `%APPDATA%\<AppName>`, installer). Until then the code keeps the `mosaicplayer` package name.

@@ -96,7 +96,7 @@ def _switch_probe(window, files):
     """MOSAIC_PROBE_SWITCH="a|b": 10 times, replace tile 0's video via the app's own
     Tile.replace (on the UI thread) and time until the new file reports time-pos < 0.3 s
     and a frame has been drawn after that. Same rule as the MultipleVideoPlayer probe."""
-    from PySide6.QtCore import QMetaObject, QObject, Qt, Signal, Slot
+    from PySide6.QtCore import QObject, Qt, Signal
 
     class Bridge(QObject):
         go = Signal(str)

@@ -1,6 +1,6 @@
 # Architecture (Phase 1: candidate analysis)
 
-No base has been chosen yet. This file records how each candidate is built, from reading its source at the commits below. Statements marked **(inferred)** come from reading code, not from running it on Windows.
+**Decision (approved 2026-11-20): MosaicPlayer is the base.** Its history is merged into this repo at `004dd93` (see `NOTICE.md`); the app code lives in `mosaicplayer/`. The comparison below is kept as the record of why (`docs/phase1-decision.md`). Statements marked **(inferred)** come from reading code, not from running it on Windows.
 
 | | MultipleVideoPlayer (primary) | MosaicPlayer (backup) |
 |---|---|---|

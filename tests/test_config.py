@@ -46,6 +46,8 @@ def test_ctrl_c_and_sigterm_close_cleanly(tmp_path):
     import time
 
     import pytest
+    if sys.platform == "win32":
+        pytest.skip("POSIX signals (Windows can't send SIGINT/SIGTERM to a child this way)")
     if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")) or not shutil.which("ffmpeg"):
         pytest.skip("needs a display and ffmpeg")
     clip = tmp_path / "c.mp4"

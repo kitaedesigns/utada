@@ -82,7 +82,13 @@ def local_path(item: str) -> str:
     if parsed.netloc not in ("", "localhost"):
         return item  # a file on another host: leave it to mpv
     # surrogateescape keeps file names that aren't UTF-8 as their bytes on disk.
-    return urllib.parse.unquote(parsed.path, errors="surrogateescape")
+    path = urllib.parse.unquote(parsed.path, errors="surrogateescape")
+    if os.name == "nt":
+        # file:///C:/a%20b.mp4 has the path "/C:/a b.mp4"; Windows needs "C:\a b.mp4".
+        if re.match(r"/[A-Za-z]:", path):
+            path = path[1:]
+        path = os.path.normpath(path)
+    return path
 
 
 def natural_key(text: str):
@@ -211,8 +217,12 @@ def _m3u_lines(path: Path, base: Path) -> list[str]:
             continue
         except UnicodeDecodeError:
             pass
-        as_bytes = os.fsdecode(raw.strip())  # keeps undecodable bytes as-is
-        if "://" not in as_bytes and (base / as_bytes).exists():
+        try:
+            as_bytes = os.fsdecode(raw.strip())  # keeps undecodable bytes as-is (POSIX)
+        except UnicodeDecodeError:
+            # Windows file names are Unicode, never raw bytes: fsdecode raises there.
+            as_bytes = None
+        if as_bytes is not None and "://" not in as_bytes and (base / as_bytes).exists():
             lines.append(as_bytes)
         else:
             lines.append(raw.decode("cp1252", errors="replace"))

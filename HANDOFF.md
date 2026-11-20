@@ -1,6 +1,9 @@
 # Handoff
 
-Phase 1 is complete on the Windows PC (2026-11-20). Waiting for approval of `docs/phase1-decision.md` (recommends MosaicPlayer as the base). No feature code yet.
+Phase 1 approved 2026-11-20: **MosaicPlayer is the base**, merged into this repo (app code in `mosaicplayer/`). Phase 2 groundwork is done (see `PROGRESS.md`); the next step is Phase 2 of the build plan.
+
+## Developing
+`.\tools\dev.ps1 setup` once, then `.\tools\dev.ps1 run [files]` and `.\tools\dev.ps1 test` (pass pytest arguments quoted, e.g. `.\tools\dev.ps1 test 'tests/test_playlist.py' '-q'`).
 
 ## Before you start
 1. Branch `claude/multi-video-player-build-5pxs6s`. Paste the full build plan as the first message (it is not in this repo). Read `PROGRESS.md`, `ARCHITECTURE.md`, `docs/R22-playlists-and-tags.md`, `docs/phase1-decision.md`.

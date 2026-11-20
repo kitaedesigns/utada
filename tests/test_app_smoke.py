@@ -8,14 +8,15 @@ import locale
 import os
 import shutil
 import subprocess
+import sys
 import time
 
 import pytest
 from PySide6.QtCore import Qt
 
-pytestmark = pytest.mark.skipif(
-    not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")) or not shutil.which("ffmpeg"),
-    reason="needs a display and ffmpeg")
+HAS_DISPLAY = sys.platform == "win32" or os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+pytestmark = pytest.mark.skipif(not HAS_DISPLAY or not shutil.which("ffmpeg"),
+                                reason="needs a display and ffmpeg")
 
 
 @pytest.fixture(scope="module")
