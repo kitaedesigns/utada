@@ -17,6 +17,7 @@ from PySide6.QtCore import QEvent, QPointF, QRect, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QOpenGLContext, QPainter, QPen
 from PySide6.QtOpenGL import QOpenGLTextureBlitter
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
+from PySide6.QtWidgets import QApplication
 
 from .config import Config
 from .layout import (LayoutResult, Rect, fixed_grid, grid_layout, justified_columns,
@@ -37,6 +38,8 @@ LAYOUT_CACHE_SIZE = 32
 SIZE_STEPS = (0.35, 0.5, 0.71, 1.0, 1.41, 2.0, 2.83, 4.0)  # tile area multipliers (√2 apart)
 SIZE_WAIT_S = 2.0  # how long new videos may hold the layout while reporting their size
 DRAG_THRESHOLD_PX = 12
+MAX_TILES = 6  # the wall never holds more (decided 2026-11-20, see PROGRESS.md)
+ACCENT = QColor(76, 141, 255)  # the plan's single blue accent (#4C8DFF)
 
 
 class Canvas(QOpenGLWidget):
@@ -73,6 +76,11 @@ class Canvas(QOpenGLWidget):
         self._wheel_accum = 0
         self._wheel_time = 0.0
         self._animation_start = 0.0
+        # While files are dragged over the wall: (message, tile that a drop replaces).
+        self.drop_hint: tuple[str, Tile | None] | None = None
+        # Waiting for a click on the tile to replace: (message, callback(tile)).
+        self.pick: tuple[str, object] | None = None
+        self._pick_done_at = 0.0
 
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.StrongFocus)
@@ -97,15 +105,22 @@ class Canvas(QOpenGLWidget):
     # --- tile management ----------------------------------------------------
 
     def add_entries(self, entries: list[Entry]):
+        """Add tiles for local files that exist, never more than MAX_TILES in all.
+
+        MainWindow.load filters and explains first; this is the last guard.
+        """
         added = 0
         for entry in entries:
-            if "://" not in entry.path and not os.path.isfile(entry.path):
+            # Web addresses are not played: the app is local-only (plan rule 7).
+            if "://" in entry.path or not os.path.isfile(entry.path):
                 continue
+            if len(self.tiles) >= MAX_TILES:
+                break
             self._add_tile(entry)
             added += 1
         missing = len(entries) - added
         if missing:
-            self.message.emit(f"Skipped {missing} missing file{'s' * (missing > 1)}")
+            self.message.emit(f"Skipped {missing} file{'s' * (missing > 1)}")
         self.schedule_relayout()
         self.tiles_changed.emit()
 
@@ -120,6 +135,40 @@ class Canvas(QOpenGLWidget):
             self._unassigned.append(tile)
         self.tiles.append(tile)
         return tile
+
+    @property
+    def room(self) -> int:
+        """How many more tiles fit on the wall."""
+        return max(0, MAX_TILES - len(self.tiles))
+
+    def replace_tile(self, tile: Tile, path: str):
+        """Show another file in an existing tile, reusing its player."""
+        if tile not in self.tiles:
+            return
+        tile.replace(path)
+        self.schedule_relayout()
+        self.tiles_changed.emit()
+
+    # --- choosing a tile with a click ----------------------------------------
+
+    def begin_pick(self, text: str, on_pick):
+        """Wait for a click on a tile, then call ``on_pick(tile)``. Esc cancels."""
+        self.pick = (text, on_pick)
+        self._sync_overlay_timer()
+        self.update()
+
+    def cancel_pick(self) -> bool:
+        """End a pending pick; True if there was one."""
+        if self.pick is None:
+            return False
+        self.pick = None
+        self.update()
+        return True
+
+    def set_drop_hint(self, hint: tuple[str, Tile | None] | None):
+        if hint != self.drop_hint:
+            self.drop_hint = hint
+            self.update()
 
     def _destroy_tile(self, tile: Tile):
         tile.closed = True  # from here on, mpv's late reports are ignored
@@ -140,6 +189,7 @@ class Canvas(QOpenGLWidget):
     def remove_tile(self, tile: Tile):
         if tile not in self.tiles:
             return
+        self.cancel_pick()  # the wall changed under the question
         if self.solo is tile:
             self.set_solo(None)
         self._destroy_tile(tile)
@@ -150,6 +200,7 @@ class Canvas(QOpenGLWidget):
         self.tiles_changed.emit()
 
     def clear(self):
+        self.cancel_pick()
         self.set_solo(None)
         for tile in self.tiles:
             self._destroy_tile(tile)
@@ -495,6 +546,53 @@ class Canvas(QOpenGLWidget):
                 p.drawRect(target)
         if self.show_hud:
             self._paint_hud(p)
+        if self.pick is not None:
+            self._paint_pick(p)
+        if self.drop_hint is not None:
+            self._paint_drop_hint(p)
+
+    def _paint_target(self, p: QPainter, tile: Tile | None, label: str):
+        """Outline the tile an action will replace, with ``label`` in its middle."""
+        r = self._rect_of(tile) if tile is not None else None
+        if r is None:
+            return
+        p.setPen(QPen(ACCENT, 3))
+        p.setBrush(QColor(ACCENT.red(), ACCENT.green(), ACCENT.blue(), 60))
+        p.drawRect(r.adjusted(1.5, 1.5, -1.5, -1.5))
+        self._paint_label(p, r.center(), label)
+
+    def _paint_label(self, p: QPainter, center: QPointF, text: str):
+        """A dark rounded box with light text, centred on ``center``."""
+        font = QFont(self.font())
+        font.setPointSizeF(12)
+        p.setFont(font)
+        metrics = p.fontMetrics()
+        width = min(metrics.horizontalAdvance(text) + 32, self.width() - 24)
+        text = metrics.elidedText(text, Qt.ElideMiddle, int(width - 32))
+        box = QRectF(center.x() - width / 2, center.y() - 22, width, 44)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(16, 16, 18, 225))
+        p.drawRoundedRect(box, 10, 10)
+        p.setPen(QColor(240, 240, 240))
+        p.drawText(box, Qt.AlignCenter, text)
+
+    def _paint_pick(self, p: QPainter):
+        text, _ = self.pick
+        self._paint_label(p, QPointF(self.width() / 2, 40), text)
+        if self.hovered is not None and self.cursor().shape() != Qt.BlankCursor:
+            self._paint_target(p, self.hovered, "Replace")
+
+    def _paint_drop_hint(self, p: QPainter):
+        text, target = self.drop_hint
+        if target is not None:
+            self._paint_target(p, target, text)
+            return
+        area = QRectF(self.rect()).adjusted(12, 12, -12, -12)
+        p.setBrush(QColor(ACCENT.red(), ACCENT.green(), ACCENT.blue(), 40))
+        pen = QPen(ACCENT, 2, Qt.DashLine)
+        p.setPen(pen)
+        p.drawRoundedRect(area, 12, 12)
+        self._paint_label(p, area.center(), text)
 
     def _overlay_font(self) -> QFont:
         font = QFont(self.font())
@@ -616,6 +714,16 @@ class Canvas(QOpenGLWidget):
 
     def mousePressEvent(self, event):
         tile = self.tile_at(event.position())
+        if self.pick is not None:
+            # Choosing a tile to replace: a left click on a tile answers;
+            # nothing else plays, pauses or drags meanwhile.
+            if event.button() == Qt.LeftButton and tile is not None:
+                _, on_pick = self.pick
+                self.pick = None
+                self._pick_done_at = time.monotonic()
+                on_pick(tile)
+                self.update()
+            return
         if tile is None:
             return
         if event.button() == Qt.LeftButton:
@@ -641,6 +749,9 @@ class Canvas(QOpenGLWidget):
         self.update()
 
     def mouseDoubleClickEvent(self, event):
+        if self.pick is not None or (time.monotonic() - self._pick_done_at
+                                     < QApplication.doubleClickInterval() / 1000):
+            return  # the click that chose a tile (or a click while choosing)
         tile = self.tile_at(event.position())
         if tile is not None and event.button() == Qt.LeftButton:
             self._press = None  # don't treat the second click as a pause toggle

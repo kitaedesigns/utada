@@ -54,8 +54,9 @@ $FF -f lavfi -i "testsrc2=size=1920x1080" -frames:v 1 still.tiff
 $FF -f lavfi -i "$(vsrc 480 270 10 2)" -c:v libwebp_anim -loop 0 anim.webp
 $FF -f lavfi -i "color=c=black@0.0:size=800x600,format=rgba,drawbox=x=200:y=150:w=400:h=300:color=blue@0.7:t=fill" -frames:v 1 transparent.png
 $FF -f lavfi -i "testsrc2=size=8000x6000" -frames:v 1 -q:v 3 big_8000x6000.jpg
-# EXIF orientation 6: pixels stored landscape with "UP" text; viewer must rotate 90 deg CW to read it.
-$FF -f lavfi -i "color=c=gray:size=1200x800,drawtext=${FONT}text='UP ->':fontsize=200:fontcolor=white:x=(w-tw)/2:y=(h-th)/2" -frames:v 1 exif_rotated.jpg
+# EXIF orientation 6: the pixels are stored turned 90 deg counter-clockwise (portrait, text
+# sideways); a viewer that applies the tag turns them 90 deg CW and shows "UP ->" upright, landscape.
+$FF -f lavfi -i "color=c=gray:size=1200x800,drawtext=${FONT}text='UP ->':fontsize=200:fontcolor=white:x=(w-tw)/2:y=(h-th)/2,transpose=2" -frames:v 1 exif_rotated.jpg
 if command -v exiftool >/dev/null; then exiftool -q -overwrite_original -Orientation=6 -n exif_rotated.jpg; else echo "WARN: exiftool missing, exif_rotated.jpg has no orientation tag"; fi
 # AVIF (ffmpeg muxer)
 $FF -f lavfi -i "testsrc2=size=1920x1080" -frames:v 1 -c:v libaom-av1 -still-picture 1 still.avif || echo "WARN: AVIF not generated"

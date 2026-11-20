@@ -2,24 +2,24 @@
 
 from __future__ import annotations
 
-import random
-import threading
+import os
 from dataclasses import fields
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QSettings, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, QPointF, QSettings, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (QDialog, QFileDialog, QInputDialog, QLabel, QMainWindow,
                                QMenu, QMessageBox, QVBoxLayout)
 
 from . import __version__
-from .canvas import Canvas
+from .canvas import MAX_TILES, Canvas
 from .config import PLAYLIST_FIELDS, Config
 from .layout import BALANCE_MODES, LAYOUT_MODES
-from .playlist import (PLAYLIST_EXTENSIONS, Entry, Playlist, expand_inputs, is_video, local_path,
-                       write_gpls)
+from .playlist import (MEDIA_EXTENSIONS, PLAYLIST_EXTENSIONS, Entry, Playlist, expand_inputs,
+                       is_media, local_path, natural_key, write_gpls)
+from .tile import Tile
 from .settings_dialog import RELOAD_FIELDS, SettingsDialog
-from .support import latest_release, log_dir
+from .support import log_dir
 from .options import END_ACTIONS
 
 HELP = """<h3>MosaicPlayer keys</h3><table cellspacing=4>
@@ -38,7 +38,7 @@ HELP = """<h3>MosaicPlayer keys</h3><table cellspacing=4>
 <tr><td><b>F</b>, <b>F11</b></td><td>fullscreen</td><td><b>H</b></td><td>stats overlay</td></tr>
 <tr><td><b>T</b></td><td>stay on top</td><td><b>Ctrl+M</b></td><td>show / hide the menu bar</td></tr>
 <tr><td><b>Ctrl+O</b></td><td>open videos</td><td><b>Ctrl+Shift+O</b></td><td>add folder (with subfolders)</td></tr>
-<tr><td><b>Ctrl+L</b></td><td>open playlist</td><td><b>Ctrl+U</b></td><td>open URL</td></tr>
+<tr><td><b>Ctrl+L</b></td><td>open playlist</td><td></td><td></td></tr>
 <tr><td><b>Ctrl+S</b></td><td>save playlist</td><td><b>Ctrl+Shift+S</b></td><td>save playlist as</td></tr>
 <tr><td><b>Ctrl+N</b>, <b>Ctrl+W</b></td><td>new: clear all videos</td><td><b>Ctrl+Q</b></td><td>quit</td></tr>
 <tr><td><b>Ctrl+,</b></td><td>settings</td><td><b>F1</b>, <b>?</b></td><td>this help</td></tr>
@@ -46,18 +46,43 @@ HELP = """<h3>MosaicPlayer keys</h3><table cellspacing=4>
 
 PLAYLIST_SETTINGS_KEY = "mosaicplayer"  # in the playlist's #P: line (GridPlayer ignores it)
 SPEEDS = (0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0)
-MANY_VIDEOS = 64  # ask before going above this many players
 PLAYLIST_FILTER = "Playlists (*.gpls *.m3u *.m3u8)"
-VIDEO_FILTER = ("Videos and playlists (*.mp4 *.mkv *.webm *.mov *.avi *.m4v *.wmv *.flv *.ts "
-                "*.mpg *.mpeg *.gif *.gpls *.m3u *.m3u8);;All files (*)")
+VIDEO_FILTER = ("Videos, GIFs, images and playlists ("
+                + " ".join(f"*{x}" for x in sorted(MEDIA_EXTENSIONS | PLAYLIST_EXTENSIONS))
+                + ");;All files (*)")
+NOTICE_MS = 6000  # how long notices about skipped files stay up
+
+
+class _Skipped:
+    """What a load left out, grouped by reason, for one notice."""
+
+    def __init__(self):
+        self.groups: dict[str, list[str]] = {}
+
+    def add(self, reason: str, name: str):
+        self.groups.setdefault(reason, []).append(name)
+
+    def __bool__(self):
+        return bool(self.groups)
+
+    def text(self) -> str:
+        lines = []
+        for reason, names in self.groups.items():
+            shown = ", ".join(names[:3])
+            if len(names) > 3:
+                shown += f" and {len(names) - 3} more"
+            lines.append(f"{reason}: {shown}")
+        return "\n".join(lines)
+
+
+def _path_key(path: str) -> str:
+    """The same file however its path is spelled (case and separators on Windows)."""
+    return os.path.normcase(os.path.abspath(path))
 
 
 class MainWindow(QMainWindow):
-    _update_result = Signal(object)  # update check thread -> UI thread
-
     def __init__(self, config: Config):
         super().__init__()
-        self._update_result.connect(self._show_update_result)
         self.cfg = config
         self.setWindowTitle("MosaicPlayer")
         self.resize(1600, 900)
@@ -69,7 +94,7 @@ class MainWindow(QMainWindow):
         self._crop_when_on = config.max_crop or 0.15  # what C turns cropping back on to
         self._before_fullscreen = (None, False)  # geometry, was maximized
         self._syncing_menus = False  # True while menus are updated from the settings
-        self.confirm_many = True  # ask before adding more than MANY_VIDEOS
+        self._drag_single_file = False  # what is being dragged over the window
 
         self.canvas = Canvas(config, self)
         self.setCentralWidget(self.canvas)
@@ -85,7 +110,8 @@ class MainWindow(QMainWindow):
         self._toast_timer.timeout.connect(self._toast.hide)
 
         self._empty = QLabel(
-            "Drop videos, folders or a .gpls playlist here\n\n"
+            "Drag videos here\n\n"
+            f"Videos, GIFs, images or folders, up to {MAX_TILES} at a time\n"
             "Ctrl+O to open  •  F1 for keys  •  Ctrl+, for settings", self.canvas)
         self._empty.setAlignment(Qt.AlignCenter)
         self._empty.setStyleSheet("color: #888; font-size: 20px; background: transparent;")
@@ -133,7 +159,6 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         self._act(m, "Open videos…", self.open_files, ["Ctrl+O"])
         self._act(m, "Add folder (with subfolders)…", self.open_folder, ["Ctrl+Shift+O"])
-        self._act(m, "Open URL…", self.open_url, ["Ctrl+U"])
         self._act(m, "Open playlist…", self.open_playlist, ["Ctrl+L"])
         self.recent_menu = m.addMenu("Recent playlists")
         self.recent_menu.aboutToShow.connect(self._fill_recent)
@@ -234,7 +259,6 @@ class MainWindow(QMainWindow):
 
         m = self.help_menu = bar.addMenu("&Help")
         self._act(m, "Keyboard and mouse", self.show_help, ["F1", "?", "Shift+?"])
-        self._act(m, "Check for updates…", self.check_for_updates)
         self._act(m, "Open log folder", self.open_log_folder)
         self._act(m, "About MosaicPlayer", self.show_about)
 
@@ -255,6 +279,8 @@ class MainWindow(QMainWindow):
 
     def contextMenuEvent(self, event):
         c = self.canvas
+        if c.cancel_pick():
+            return  # right-click while choosing a tile to replace: cancel
         tile = c.tile_at(c.mapFromGlobal(event.globalPos()).toPointF())
         menu = QMenu(self)
         if tile:
@@ -290,41 +316,108 @@ class MainWindow(QMainWindow):
 
     # --- open / save --------------------------------------------------------
 
-    def load(self, inputs):
-        was_empty = not self.canvas.tiles
+    def load(self, inputs, recursive: bool | None = None, target: Tile | None = None):
+        """Add files, folders and playlists as tiles; the wall holds at most MAX_TILES.
+
+        Videos, GIFs and images are added in the order given (folders in natural
+        name order). Anything else, missing files, files already on the wall
+        (unless duplicates are allowed) and files beyond the wall's room are
+        left out and listed in one notice. ``recursive`` (default: the setting)
+        includes the subfolders of folders. When the wall is full, a single
+        file replaces ``target`` (the tile it was dropped on) or else the tile
+        clicked next.
+        """
+        c = self.canvas
+        c.cancel_pick()
+        if recursive is None:
+            recursive = self.cfg.recursive_folders
+        was_empty = not c.tiles
         playlists = []
         entries: list[Entry] = []
-        failed = []
+        skipped = _Skipped()
         for item in inputs:
-            try:
-                found, params = expand_inputs([item])
-            except (OSError, ValueError, UnicodeError) as e:
-                failed.append(f"{Path(str(item)).name}: {e}")
+            path = local_path(str(item))
+            if "://" in path:
+                skipped.add("Only local files play", path)
                 continue
-            is_playlist = Path(str(item)).suffix.lower() in PLAYLIST_EXTENSIONS
+            p = Path(path)
+            name = p.name or path
+            is_playlist = p.suffix.lower() in PLAYLIST_EXTENSIONS
+            if not p.exists():
+                skipped.add("Not found", name)
+                continue
+            if p.is_file() and not is_playlist and not is_media(p):
+                skipped.add("Not a video, GIF or image", name)
+                continue
+            try:
+                found, params = expand_inputs([path], recursive=recursive)
+            except (OSError, ValueError, UnicodeError) as e:
+                skipped.add("Could not open", f"{name} ({e})")
+                continue
             if is_playlist:
-                playlists.append(str(item))
+                playlists.append(path)
                 if params and was_empty:
                     self._playlist_params = params
             else:
+                if p.is_dir() and not found:
+                    skipped.add("No videos, GIFs or images in", name)
                 for e in found:
                     e.muted = self.cfg.start_muted
                     e.start_random = self.cfg.start_random
             entries += found
-        if failed:
-            self.toast("Could not open " + "; ".join(failed), 6000)
-        if not entries:
-            if not failed:
-                self.toast("No videos found")
+        # Playlists may name web addresses or files that are gone.
+        complete = True  # every playlist entry makes it onto the wall
+        usable = []
+        for e in entries:
+            if "://" in e.path:
+                skipped.add("Only local files play", e.path)
+            elif not os.path.isfile(e.path):
+                skipped.add("Not found", Path(e.path).name)
+            else:
+                usable.append(e)
+                continue
+            complete = False
+        entries = usable
+        if not self.cfg.allow_duplicates:
+            seen = {_path_key(t.entry.path) for t in c.tiles}
+            fresh = []
+            for e in entries:
+                key = _path_key(e.path)
+                if key in seen:
+                    skipped.add("Already on the wall", Path(e.path).name)
+                    complete = False
+                else:
+                    seen.add(key)
+                    fresh.append(e)
+            entries = fresh
+        replacement = None
+        room = c.room
+        if len(entries) > room:
+            complete = False
+            if room == 0 and len(entries) == 1:
+                replacement, entries = entries[0], []
+            else:
+                reason = (f"The wall is full ({MAX_TILES} tiles); close a tile, or drop one "
+                          "file on a tile to replace it. Not added" if room == 0 else
+                          f"The wall holds {MAX_TILES} tiles. Not added")
+                for e in entries[room:]:
+                    skipped.add(reason, Path(e.path).name)
+                entries = entries[:room]
+        if replacement is not None:
+            self._ask_replace(replacement, target, skipped.text() if skipped else "")
             return
-        entries = self._confirm_many(entries)
+        if skipped:
+            self.toast(skipped.text(), NOTICE_MS)
         if not entries:
+            if not skipped:
+                self.toast("No videos, GIFs or images found")
             return
         opened_alone = was_empty and len(playlists) == 1 and len(inputs) == 1
         for path in playlists:
-            # Ctrl+S saves back to a playlist only when it was opened on its own;
-            # after merging it into other videos it would overwrite it with more.
-            self._remember_playlist(path, save_target=opened_alone)
+            # Ctrl+S saves back to a playlist only when it was opened on its own
+            # (after merging it into other videos it would overwrite it with more)
+            # and all of it is on the wall (else it would overwrite it with less).
+            self._remember_playlist(path, save_target=opened_alone and complete)
         if opened_alone:
             # The playlist's own layout settings, on top of the defaults (a
             # GridPlayer playlist has none, so it opens with the defaults).
@@ -336,27 +429,27 @@ class MainWindow(QMainWindow):
             self._settings_changed()
         self.canvas.add_entries(entries)
 
-    def _confirm_many(self, entries: list[Entry]) -> list[Entry]:
-        """Ask before starting a very large number of players at once."""
-        total = len(entries) + len(self.canvas.tiles)
-        if total <= MANY_VIDEOS or not self.confirm_many:
-            return entries
-        box = QMessageBox(self)
-        box.setWindowTitle("Add videos")
-        box.setText(f"This adds {len(entries)} videos ({total} in total). Every video is a "
-                    f"separate player; more than about {MANY_VIDEOS} can overload the computer.")
-        room = max(MANY_VIDEOS - len(self.canvas.tiles), 0)
-        add_all = box.addButton(f"Add all {len(entries)}", QMessageBox.AcceptRole)
-        add_some = box.addButton(f"Add {room} at random", QMessageBox.AcceptRole) if room else None
-        box.addButton(QMessageBox.Cancel)
-        box.exec()
-        if box.clickedButton() is add_all:
-            return entries
-        if add_some is not None and box.clickedButton() is add_some:
-            # A random subset, still in playlist order (rows and grids keep it).
-            keep = sorted(random.sample(range(len(entries)), room))
-            return [entries[i] for i in keep]
-        return []
+    def _ask_replace(self, entry: Entry, target: Tile | None, note: str = ""):
+        """The wall is full: show ``entry`` in ``target``, or in the tile clicked next.
+
+        ``note`` (what else the load left out) goes in the same notice.
+        """
+        if target is not None and target in self.canvas.tiles:
+            self._replace(target, entry, note)
+            return
+        if note:
+            self.toast(note, NOTICE_MS)
+        else:
+            self._toast.hide()  # an older notice would compete with the question
+        self.canvas.begin_pick(
+            f"The wall is full. Click the tile to replace with “{Path(entry.path).name}”"
+            "  •  Esc cancels", lambda tile: self._replace(tile, entry))
+
+    def _replace(self, tile: Tile, entry: Entry, note: str = ""):
+        old = tile.title
+        self.canvas.replace_tile(tile, entry.path)
+        text = f"Replaced {old} with {Path(entry.path).name}"
+        self.toast(f"{text}\n{note}" if note else text, NOTICE_MS if note else 3500)
 
     def _remember_playlist(self, path: str, save_target=True):
         if save_target and Path(path).suffix.lower() == ".gpls":
@@ -379,12 +472,7 @@ class MainWindow(QMainWindow):
                                                   self._last_dir())
         if folder:
             self._store.setValue("last_dir", folder)
-            self.load([folder])
-
-    def open_url(self):
-        url, ok = QInputDialog.getText(self, "Open URL", "Video URL (http, https, rtsp…):")
-        if ok and url.strip():
-            self.canvas.add_entries([Entry(local_path(url.strip()), muted=self.cfg.start_muted)])
+            self.load([folder], recursive=True)  # the menu item says "with subfolders"
 
     def open_playlist(self):
         path, _ = QFileDialog.getOpenFileName(self, "Open playlist", self._last_dir(),
@@ -435,16 +523,60 @@ class MainWindow(QMainWindow):
 
     # --- drag and drop ------------------------------------------------------
 
+    # Anything with URLs is accepted; load() explains what it leaves out.
+
     def dragEnterEvent(self, event):
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
+        if not event.mimeData().hasUrls():
+            return
+        urls = event.mimeData().urls()
+        self._drag_single_file = len(urls) == 1 and os.path.isfile(urls[0].toLocalFile())
+        event.acceptProposedAction()
+        self._show_drop_hint(event)
+
+    def dragMoveEvent(self, event):
+        if not event.mimeData().hasUrls():
+            return
+        event.acceptProposedAction()
+        self._show_drop_hint(event)
+
+    def dragLeaveEvent(self, event):
+        self._end_drag()
 
     def dropEvent(self, event):
-        paths = [u.toLocalFile() or u.toString() for u in event.mimeData().urls()]
-        paths = [p for p in paths if Path(p).is_dir() or is_video(p)
-                 or Path(p).suffix.lower() in PLAYLIST_EXTENSIONS or "://" in p]
+        target = self._tile_under(event)
+        self._end_drag()
+        # Explorer lists a multi-selection starting with the item dragged, not in
+        # folder order: sort by name so the order on the wall is predictable.
+        paths = sorted((u.toLocalFile() or u.toString() for u in event.mimeData().urls()),
+                       key=lambda p: natural_key(Path(p).name))
         if paths:
-            self.load(paths)
+            event.acceptProposedAction()
+            self.load(paths, target=target)
+
+    def _tile_under(self, event) -> Tile | None:
+        c = self.canvas
+        return c.tile_at(QPointF(c.mapFrom(self, event.position().toPoint())))
+
+    def _show_drop_hint(self, event):
+        """The drop-zone overlay: what letting go here will do."""
+        c = self.canvas
+        if c.room:
+            more = f" (room for {c.room} more)" if c.tiles else ""
+            hint = (f"Drop to add to the wall{more}", None)
+        else:
+            tile = self._tile_under(event)
+            if self._drag_single_file and tile is not None:
+                hint = (f"Replace “{tile.title}”", tile)
+            elif self._drag_single_file:
+                hint = ("The wall is full: drop on a tile to replace it", None)
+            else:
+                hint = (f"The wall is full ({MAX_TILES} tiles): close a tile first", None)
+        c.set_drop_hint(hint)
+        self._empty.hide()
+
+    def _end_drag(self):
+        self.canvas.set_drop_hint(None)
+        self._empty.setVisible(not self.canvas.tiles)
 
     # --- settings -----------------------------------------------------------
 
@@ -619,6 +751,8 @@ class MainWindow(QMainWindow):
         self._apply_window_config()
 
     def escape(self):
+        if self.canvas.cancel_pick():
+            return
         if self.canvas.solo:
             self.canvas.set_solo(None)
         elif self.isFullScreen():
@@ -626,37 +760,6 @@ class MainWindow(QMainWindow):
 
     def show_help(self):
         QMessageBox.information(self, "Keyboard and mouse", HELP)
-
-    def check_for_updates(self):
-        """Ask GitHub for the latest release (only when chosen; never automatic)."""
-        self.toast("Checking for updates…")
-
-        def check():
-            try:
-                newer = latest_release()
-                result = ("newer", newer) if newer else ("current", None)
-            except (OSError, ValueError) as e:
-                result = ("error", str(e))
-            self._update_result.emit(result)
-
-        threading.Thread(target=check, daemon=True).start()
-
-    def _show_update_result(self, result):
-        kind, info = result
-        if kind == "newer":
-            version, url = info
-            box = QMessageBox(self)
-            box.setWindowTitle("Update available")
-            box.setText(f"MosaicPlayer {version} is available (you have {__version__}).")
-            download = box.addButton("Open download page", QMessageBox.AcceptRole)
-            box.addButton(QMessageBox.Close)
-            box.exec()
-            if box.clickedButton() is download:
-                QDesktopServices.openUrl(QUrl(url))
-        elif kind == "current":
-            self.toast(f"MosaicPlayer {__version__} is the latest version")
-        else:
-            self.toast(f"Could not check for updates: {info}", 6000)
 
     def open_log_folder(self):
         folder = log_dir()

@@ -296,16 +296,6 @@ def test_overlay_timer_idles(app, window, clips):
     assert not c._overlay_timer.isActive()
 
 
-def test_many_videos_asks_first(app, window, clips, monkeypatch):
-    from mosaicplayer.playlist import Entry
-    from PySide6.QtWidgets import QMessageBox
-    monkeypatch.setattr(QMessageBox, "exec", lambda self: None)  # dialog "cancelled"
-    monkeypatch.setattr(QMessageBox, "clickedButton", lambda self: None)
-    entries = [Entry(str(p)) for p in sorted(clips.iterdir())] * 12  # 72 videos
-    assert window._confirm_many(entries) == []
-    assert window._confirm_many(entries[:10]) == entries[:10]
-
-
 def test_settings_dialog_round_trip(app, window):
     from dataclasses import replace
     from mosaicplayer.settings_dialog import SettingsDialog
@@ -382,18 +372,6 @@ def test_saving_at_once_keeps_saved_positions(app, window, clips, tmp_path):
     assert [e.position for e in read_gpls(source).entries] == [1.25] * 3
 
 
-def test_adding_some_at_random_keeps_playlist_order(app, window, clips, monkeypatch):
-    from mosaicplayer.playlist import Entry
-    from PySide6.QtWidgets import QMessageBox
-    monkeypatch.setattr(QMessageBox, "exec", lambda self: None)
-    some = lambda self: next(b for b in self.buttons() if b.text().startswith("Add 64"))
-    monkeypatch.setattr(QMessageBox, "clickedButton", some)
-    entries = [Entry(f"/v/{i}.mp4") for i in range(100)]
-    chosen = window._confirm_many(entries)
-    assert len(chosen) == 64
-    assert [int(e.path[3:-4]) for e in chosen] == sorted(int(e.path[3:-4]) for e in chosen)
-
-
 def test_layout_in_flight_cannot_bring_back_closed_tiles(app, window, clips):
     c = window.canvas
     window.load([clips])
@@ -460,6 +438,7 @@ def test_random_positions_are_not_snapped_to_keyframes(app, window, tmp_path):
                     "testsrc2=size=320x180:rate=25:duration=8", "-c:v", "libx264", "-g", "1000",
                     "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(clip)], check=True)
     c = window.canvas
+    window.cfg.allow_duplicates = True  # the same clip in four tiles
     window.load([str(clip)] * 4)
     pump(app, 2.0)
     c.set_all_paused(True)
@@ -469,3 +448,209 @@ def test_random_positions_are_not_snapped_to_keyframes(app, window, tmp_path):
     positions = [tile.progress()[0] for tile in c.tiles]
     assert len({round(p, 1) for p in positions}) >= 3, positions
     assert max(positions) > 1.0
+
+
+# --- Phase 2.1: drag and drop, media types, duplicates, the 6-tile wall ---------
+
+
+@pytest.fixture(scope="module")
+def media(tmp_path_factory, clips):
+    """Two clips, a JPG, a GIF, a text file, and a clip in a subfolder."""
+    folder = tmp_path_factory.mktemp("media")
+    shutil.copy(clips / "c0.mp4", folder / "clip 10.mp4")
+    shutil.copy(clips / "c1.mp4", folder / "clip 2.mp4")
+    for name, args in (("still.jpg", ["-frames:v", "1"]),
+                       ("anim.gif", ["-t", "1", "-r", "10"])):
+        subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                        "testsrc2=size=320x240:rate=10", *args, str(folder / name)], check=True)
+    (folder / "notes.txt").write_text("not media")
+    (folder / "sub").mkdir()
+    shutil.copy(clips / "c2.mp4", folder / "sub" / "deep.mp4")
+    return folder
+
+
+def _drop(window, paths, at=None):
+    """Drag ``paths`` over the window and drop them at ``at`` (window coordinates).
+
+    Returns the drop-zone hint that was showing just before the drop.
+    """
+    from PySide6.QtCore import QMimeData, QPointF, QUrl
+    from PySide6.QtGui import QDragEnterEvent, QDropEvent
+    mime = QMimeData()
+    mime.setUrls([QUrl(p) if "://" in str(p) else QUrl.fromLocalFile(str(p)) for p in paths])
+    pos = at or QPointF(window.width() / 2, window.height() / 2)
+    window.dragEnterEvent(QDragEnterEvent(pos.toPoint(), Qt.CopyAction, mime, Qt.LeftButton,
+                                          Qt.NoModifier))
+    hint = window.canvas.drop_hint
+    window.dropEvent(QDropEvent(pos, Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier))
+    return hint
+
+
+def _tile_center(window, tile):
+    """The middle of ``tile`` in window coordinates."""
+    c = window.canvas
+    return c.mapTo(window, c._rect_of(tile).center().toPoint()).toPointF()
+
+
+def _names(c):
+    return [os.path.basename(t.entry.path) for t in c.tiles]
+
+
+def test_drop_mixed_media_skips_the_rest(app, window, media):
+    c = window.canvas
+    hint = _drop(window, [media / n for n in
+                          ("clip 10.mp4", "notes.txt", "still.jpg", "clip 2.mp4", "anim.gif")])
+    assert hint[0].startswith("Drop to add") and hint[1] is None
+    assert c.drop_hint is None  # the overlay goes away on drop
+    # Sorted by name, whatever order Explorer lists them in.
+    assert _names(c) == ["anim.gif", "clip 2.mp4", "clip 10.mp4", "still.jpg"]
+    assert [t.entry.kind for t in c.tiles] == ["gif", "video", "video", "image"]
+    assert len({t.entry.id for t in c.tiles}) == 4
+    assert window._toast.isVisible() and "notes.txt" in window._toast.text()
+    pump(app, 2.5)
+    for tile in c.tiles:
+        assert tile.error is None and tile.aspect_known and tile.frames_drawn > 0, tile.title
+    still = c.tiles[3]
+    assert not still._at_end  # a still image stays up (no 1 s timeout)
+    assert not window._empty.isVisible()
+
+
+def test_drop_folder_one_level_unless_set(app, window, media):
+    c = window.canvas
+    _drop(window, [media])
+    assert _names(c) == ["anim.gif", "clip 2.mp4", "clip 10.mp4", "still.jpg"]
+    window.close_all()
+    window.cfg.recursive_folders = True
+    _drop(window, [media])
+    assert _names(c)[-1] == "deep.mp4"
+    assert len(c.tiles) == 5
+
+
+def test_duplicates_need_the_setting(app, window, media):
+    c = window.canvas
+    _drop(window, [media / "clip 2.mp4"])
+    _drop(window, [media / "clip 2.mp4"])
+    assert len(c.tiles) == 1
+    assert "Already on the wall: clip 2.mp4" in window._toast.text()
+    # The same file spelled differently is still the same file.
+    window.load([str(media / "sub" / ".." / "CLIP 2.mp4") if sys.platform == "win32"
+                 else str(media / "sub" / ".." / "clip 2.mp4")])
+    assert len(c.tiles) == 1
+    window.cfg.allow_duplicates = True
+    _drop(window, [media / "clip 2.mp4"])
+    assert len(c.tiles) == 2
+
+
+def test_rejects_non_media_missing_and_web(app, window, media, tmp_path):
+    c = window.canvas
+    _drop(window, [media / "notes.txt"])
+    assert not c.tiles and "Not a video, GIF or image: notes.txt" in window._toast.text()
+    window.load([str(tmp_path / "gone.mp4")])
+    assert not c.tiles and "Not found: gone.mp4" in window._toast.text()
+    _drop(window, ["https://example.com/talk.mp4"])
+    assert not c.tiles and "Only local files play" in window._toast.text()
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    window.load([empty])
+    assert "No videos, GIFs or images in: empty" in window._toast.text()
+    assert window._empty.isVisible()
+
+
+def test_corrupt_file_gets_an_error_tile(app, window, clips, tmp_path):
+    broken = tmp_path / "corrupt.mp4"
+    broken.write_bytes((clips / "c0.mp4").read_bytes()[:1500])  # truncated
+    junk = tmp_path / "junk.mp4"
+    junk.write_bytes(b"this is not a video" * 100)
+    window.load([broken, junk, clips / "c1.mp4"])
+    pump(app, 2.5)
+    c = window.canvas
+    errors = {t.title: t.error for t in c.tiles}
+    assert errors["corrupt"] and errors["junk"] and errors["c1"] is None
+
+
+def test_wall_holds_six_and_full_wall_replaces(app, window, clips, media, tmp_path):
+    c = window.canvas
+    many = tmp_path / "twenty"
+    many.mkdir()
+    for i in range(20):
+        shutil.copy(clips / f"c{i % 6}.mp4", many / f"talk {i + 1}.mp4")
+    _drop(window, [many])
+    assert _names(c) == [f"talk {i}.mp4" for i in range(1, 7)]
+    assert "The wall holds 6 tiles. Not added: talk 7.mp4, talk 8.mp4, talk 9.mp4 and 11 more" \
+        in window._toast.text()
+    pump(app, 2.0)
+
+    # Full: one file dropped on a tile replaces that tile, reusing its player.
+    third = c.tiles[2]
+    player = third.player
+    hint = _drop(window, [media / "still.jpg"], at=_tile_center(window, third))
+    assert hint == ("Replace “talk 3”", third)
+    assert c.tiles[2] is third and third.player is player
+    assert _names(c)[2] == "still.jpg" and len(c.tiles) == 6
+
+    # Opened another way (or dropped on no tile): click the tile to replace.
+    window.load([media / "anim.gif"])
+    assert c.pick is not None and len(c.tiles) == 6
+    from PySide6.QtTest import QTest
+    first = c.tiles[0]
+    QTest.mouseClick(c, Qt.LeftButton, Qt.NoModifier, c._rect_of(first).center().toPoint())
+    assert c.pick is None and _names(c)[0] == "anim.gif"
+    assert not first.paused  # the click chose a tile; it did not also pause it
+
+    # Esc (or a right-click) cancels; nothing changes.
+    before = _names(c)
+    window.load([media / "clip 2.mp4"])
+    assert c.pick is not None
+    window.escape()
+    assert c.pick is None and _names(c) == before
+
+    # Several files onto a full wall: nothing added, and the notice says why.
+    hint = _drop(window, [media / "clip 2.mp4", media / "clip 10.mp4"])
+    assert "full" in hint[0] and hint[1] is None
+    assert _names(c) == before and "The wall is full" in window._toast.text()
+    pump(app, 1.5)
+    assert all(t.error is None for t in c.tiles)
+
+    # Closing a tile makes room again.
+    c.remove_tile(c.tiles[-1])
+    _drop(window, [media / "clip 2.mp4"])
+    assert len(c.tiles) == 6 and _names(c)[-1] == "clip 2.mp4"
+
+
+def test_drag_leave_clears_the_overlay(app, window, media):
+    from PySide6.QtCore import QMimeData, QPoint, QUrl
+    from PySide6.QtGui import QDragEnterEvent, QDragLeaveEvent
+    mime = QMimeData()
+    mime.setUrls([QUrl.fromLocalFile(str(media / "still.jpg"))])
+    window.dragEnterEvent(QDragEnterEvent(QPoint(50, 50), Qt.CopyAction, mime, Qt.LeftButton,
+                                          Qt.NoModifier))
+    assert window.canvas.drop_hint is not None and not window._empty.isVisible()
+    window.dragLeaveEvent(QDragLeaveEvent())
+    assert window.canvas.drop_hint is None and window._empty.isVisible()
+
+
+def test_trimmed_playlist_is_not_a_save_target(app, window, clips, tmp_path):
+    from mosaicplayer.playlist import Entry, Playlist, write_gpls
+    big = tmp_path / "eight.gpls"
+    paths = [str(clips / f"c{i % 6}.mp4") for i in range(8)]
+    write_gpls(big, Playlist([Entry(p) for p in paths]))
+    window.cfg.allow_duplicates = True
+    window.load([str(big)])
+    assert len(window.canvas.tiles) == 6
+    assert window._playlist_path is None  # Ctrl+S must not overwrite it with 6 of 8
+    window.close_all()
+    small = tmp_path / "three.gpls"
+    write_gpls(small, Playlist([Entry(p) for p in paths[:3]]))
+    window.load([str(small)])
+    assert window._playlist_path == str(small)
+
+
+def test_rotated_video_gets_a_tile_of_its_shown_shape(app, window, clips, tmp_path):
+    # A landscape clip tagged "rotate 90" (as phones record portrait video) shows portrait.
+    rotated = tmp_path / "phone.mp4"
+    subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", "-display_rotation", "90",
+                    "-i", str(clips / "c0.mp4"), "-c", "copy", str(rotated)], check=True)
+    window.load([rotated])
+    pump(app, 2.0)
+    tile = window.canvas.tiles[0]
+    assert tile.aspect_known and abs(tile.aspect - 180 / 320) < 0.01, tile.aspect

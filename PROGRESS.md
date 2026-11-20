@@ -1,6 +1,42 @@
 # Progress
 
-## Status: Phase 1 approved 2026-11-20: **MosaicPlayer is the base.** Phase 2 groundwork done (below). The build plan is now in `docs/BUILD-PLAN.md`; next is Phase 2.1.
+## Status: Phase 2.1 done (2026-11-20). Next: 2.2 media handling.
+
+## Phase 2.1: drag and drop and the media list (R1), done 2026-11-20
+**What changed**
+- **Media items:** each tile's `Entry` is the media item: a session `id`, absolute `path`, `kind` (video / gif / image, from the extension), volume, muted, end-of-media action (on the tile), and position = its place in `Canvas.tiles`, the single ordered list the wall draws from.
+- **Accepted:** videos, GIFs and images (JPG, PNG, WebP, BMP, TIFF, HEIC/HEIF, AVIF), folders and playlists. Images stay on screen (`image-display-duration=inf`) and never take a GPU decoder slot.
+- **Folders:** one level by default, natural name order; setting "Dropped folders include their subfolders" (off). File > "Add folder (with subfolders)" still includes them, as its name says.
+- **Order:** a multi-file drop is sorted by name. Explorer lists a selection starting with the file you grabbed, so drop order alone isn't predictable.
+- **Duplicates:** a file already on the wall is not added again, with a notice. Setting "Allow the same file on the wall more than once" (off). Paths are compared case-insensitively on Windows.
+- **Rejected with one notice (no dialog), grouped by reason:** not a video, GIF or image; not found; web addresses; folders with no media; files that didn't fit. A file that has the right extension but won't play becomes an error tile ("cannot play this file"); nothing crashes.
+- **6-tile wall:** files beyond the room left are not added, and the notice names them. On a full wall, one file dropped on a tile replaces that tile; dropped anywhere else (or opened with Ctrl+O or the command line), a banner asks you to click the tile to replace (Esc or right-click cancels). Replacing reuses the tile's player, keeps its volume and mute, and resets zoom. The "add it to that tile's queue" option comes with queues in 2.13.
+- **Drop zone:** while dragging, a dashed blue overlay says "Drop to add to the wall (room for N more)". On a full wall, the tile under the cursor is outlined: "Replace 'name'".
+- **Empty wall:** "Drag videos here" with a short line on what's accepted.
+- **Network removed (plan rule 7):** the update check, File > Open URL and yt-dlp are gone; web addresses in playlists or drops are skipped.
+- **Removed:** the "more than 64 videos" question, which the 6-tile cap replaces. `--no-confirm` is kept as a no-op for old scripts.
+- **Playlists:** a playlist only becomes the Ctrl+S target if all of it made it onto the wall, so saving can't overwrite an 8-video playlist with the 6 shown.
+
+**Bug found and fixed:** photos with EXIF rotation and phone videos with a rotation tag got a tile of their unrotated shape. With the default crop, a rotated landscape photo was cut to a portrait strip. mpv reports the shape before rotation; tiles now use the shape as shown. The Phase 1 test photo hid this: its pixels held upright text, so a correct viewer shows it sideways. `make_testmedia.sh` now stores the pixels turned, so correct display is upright, landscape text.
+
+**Acceptance (plan 2.1), tested in the real app and in GUI tests (`tests/test_app_smoke.py`)**
+| Test | Result |
+|---|---|
+| Drop 1 file | Pass |
+| Drop 6 files | Pass |
+| Drop a folder of 20 | Pass: first 6 by name; the notice names the other 14 |
+| Drop video + GIF + JPG + txt | Pass: 3 tiles, `.txt` named in the notice |
+| Order stable | Pass: sorted by name |
+| No crash on corrupt / non-media files | Pass: error tile for each |
+| Drop overlay appears, and clears on drop and on drag cancel | Pass |
+| Empty-state hint | Pass |
+| Duplicates off by default; setting allows them | Pass |
+| 7th file: replace the tile it's dropped on, or pick a tile; Esc cancels | Pass |
+| Real test media: 4K HEVC (`d3d11va-copy`), variable-delay GIF, HEIC, 8000×6000 JPG, EXIF photo upright | Pass. The big JPG adds without blocking the UI |
+
+**Not verified by me:** a drag from Windows Explorer with the real mouse. The tests send Qt's drop events directly, which is what Qt builds from an Explorer drop, but the Explorer-to-Qt step itself was not exercised.
+
+**Suite:** pyflakes clean; unit 97 passed, 2 skipped, plus the 2 speed-sensitive layout tests; GUI 27 passed. That includes 9 new tests and 3 new unit tests.
 
 ## Phase 2 groundwork (2026-11-20)
 - MosaicPlayer's history merged into this repo at `004dd93` (remote `upstream`); `NOTICE.md` added; the project is GPL-3.0-or-later.
@@ -95,7 +131,7 @@ Both builds give identical results: JPG, PNG, WebP, BMP, TIFF, AVIF, **HEIC** (s
 - Where the plan says 9 or 12 tiles (layout, hover, zoom and sidebar acceptance, "drop 9 files", the 30-minute soak, the Enhance cost test), use 6, the wall maximum. Plan Phase 3 step 2 ("max simultaneously playing tiles") is covered by the 6-tile cap.
 
 ## Plan vs. MosaicPlayer: changes Phase 2 must make
-- **Remove (plan rule 7 and the out-of-scope list):** the update check (`support.py`, network call), Open URL and yt-dlp (network sources), "Random positions" and the speed setting.
+- **Remove (plan rule 7 and the out-of-scope list):** ~~the update check, Open URL and yt-dlp~~ (done in 2.1); "Random positions" and the speed setting.
 - **Remove the menu bar:** plan 2.14 puts the main controls in a footer, with nothing in a header.
 - **Fit, not crop, by default:** MosaicPlayer crops to fill (`panscan=1.0`); plan 2.3 wants the full frame (`panscan=0`), with crop as an opt-in setting.
 - **Settings:** MosaicPlayer stores them with `QSettings`; plan 2.8 wants a versioned `%APPDATA%\<AppName>\settings.json`.

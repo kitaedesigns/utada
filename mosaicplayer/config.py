@@ -80,6 +80,10 @@ class Config:
     start_random: bool = False
     pause_when_minimized: bool = True
 
+    # Adding files
+    allow_duplicates: bool = False  # the same file on the wall twice
+    recursive_folders: bool = False  # a dropped folder adds its subfolders' media too
+
     # Decoding
     decoder_mode: str = AUTO
     # D3D11 works with any GPU on Windows; elsewhere NVDEC suits NVIDIA cards.

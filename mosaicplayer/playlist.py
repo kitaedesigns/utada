@@ -15,6 +15,7 @@ Fields MosaicPlayer doesn't use are kept and written back unchanged.
 
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import re
@@ -28,13 +29,26 @@ VIDEO_EXTENSIONS = frozenset(
     ".3g2 .3gp .asf .avi .divx .dv .f4v .flv .gif .m2t .m2ts .m4v .mkv .mov .mp4"
     " .mpeg .mpg .mts .mxf .ogm .ogv .qt .rm .rmvb .ts .vob .webm .wmv".split()
 )
+# Still images (and animated WebP), shown by mpv's image decoders.
+IMAGE_EXTENSIONS = frozenset(
+    ".jpg .jpeg .jpe .jfif .png .webp .bmp .tif .tiff .heic .heif .avif".split()
+)
+MEDIA_EXTENSIONS = VIDEO_EXTENSIONS | IMAGE_EXTENSIONS
+VIDEO, GIF, IMAGE = "video", "gif", "image"  # media item types
 PLAYLIST_EXTENSIONS = frozenset({".gpls", ".m3u", ".m3u8"})
 GPLS_HEADER = "#GRIDPLAYER"
 MIN_WEIGHT, MAX_WEIGHT = 0.25, 6.0  # a little beyond the UI's 0.35–4 steps
 
+_ids = itertools.count(1)
+
 
 @dataclass
 class Entry:
+    """One media item on the wall (the wall's order is the order of its tiles).
+
+    ``id`` is unique for the session and never saved; ``kind`` follows the path,
+    so it stays right when a tile loads another file.
+    """
     path: str
     muted: bool = True
     paused: bool = False
@@ -44,6 +58,12 @@ class Entry:
     position: float = 0.0  # seconds; GridPlayer stores milliseconds
     size_weight: float = 1.0  # relative tile area in puzzle layouts (MosaicPlayer only)
     extra: dict = field(default_factory=dict)  # untouched GridPlayer fields
+    id: int = field(default_factory=lambda: next(_ids), compare=False, repr=False)
+
+    @property
+    def kind(self) -> str:
+        """VIDEO, GIF or IMAGE (anything not recognised is tried as a video)."""
+        return media_kind(self.path) or VIDEO
 
     def to_gpls_params(self, save_position=True, save_paused=True) -> dict:
         params = dict(self.extra)
@@ -68,6 +88,25 @@ def is_video(path: str | os.PathLike) -> bool:
     name = Path(path).name
     # "._name.mp4" files are macOS metadata, not videos.
     return Path(path).suffix.lower() in VIDEO_EXTENSIONS and not name.startswith("._")
+
+
+def media_kind(path: str | os.PathLike) -> str | None:
+    """VIDEO, GIF or IMAGE by file extension; None for anything else."""
+    if Path(path).name.startswith("._"):
+        return None  # macOS metadata
+    suffix = Path(path).suffix.lower()
+    if suffix == ".gif":
+        return GIF
+    if suffix in VIDEO_EXTENSIONS:
+        return VIDEO
+    if suffix in IMAGE_EXTENSIONS:
+        return IMAGE
+    return None
+
+
+def is_media(path: str | os.PathLike) -> bool:
+    """A video, GIF or image the wall can show (by extension)."""
+    return media_kind(path) is not None
 
 
 def local_path(item: str) -> str:
@@ -229,10 +268,13 @@ def _m3u_lines(path: Path, base: Path) -> list[str]:
     return lines
 
 
-def expand_inputs(inputs) -> tuple[list[Entry], dict]:
-    """Turn files, folders (recursive) and playlists into entries.
+def expand_inputs(inputs, recursive=True) -> tuple[list[Entry], dict]:
+    """Turn files, folders and playlists into entries.
 
-    Returns the entries and the params of the first .gpls seen, if any.
+    Folders give their videos, GIFs and images in natural order, with their
+    subfolders' too if ``recursive``. Files are taken as they are (callers
+    check the type). Returns the entries and the params of the first .gpls
+    seen, if any.
     """
     entries: list[Entry] = []
     params: dict = {}
@@ -243,7 +285,7 @@ def expand_inputs(inputs) -> tuple[list[Entry], dict]:
             continue
         p = Path(item).expanduser()
         if p.is_dir():
-            entries += [Entry(f) for f in _scan(p)]
+            entries += [Entry(f) for f in _scan(p, recursive)]
         elif p.suffix.lower() == ".gpls":
             pl = read_gpls(p)
             params = params or pl.params
@@ -255,16 +297,17 @@ def expand_inputs(inputs) -> tuple[list[Entry], dict]:
     return entries, params
 
 
-def _scan(folder: Path) -> list[str]:
-    """Videos under ``folder``, in natural order, skipping hidden folders.
+def _scan(folder: Path, recursive=True) -> list[str]:
+    """Videos, GIFs and images in ``folder``, in natural order.
 
-    Hidden folders hold things like .Trash-1000 (deleted videos on a drive)
-    and thumbnail caches. The folder itself may be hidden if chosen directly.
+    With ``recursive``, subfolders too, skipping hidden ones: they hold things
+    like .Trash-1000 (deleted videos on a drive) and thumbnail caches. The
+    folder itself may be hidden if chosen directly.
     """
     found = []
     for root, dirs, files in os.walk(folder):
-        dirs[:] = [d for d in dirs if not d.startswith(".")]
-        found += [os.path.join(root, f) for f in files if is_video(f)]
+        dirs[:] = [d for d in dirs if not d.startswith(".")] if recursive else []
+        found += [os.path.join(root, f) for f in files if is_media(f)]
     return sorted(found, key=lambda f: natural_key(os.path.relpath(f, folder)))
 
 

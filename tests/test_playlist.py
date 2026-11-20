@@ -181,3 +181,35 @@ def test_next_in_folder(tmp_path):
     assert next_in_folder(f"{d}//./clip 1.mp4") == j("clip 2.mp4")  # spelled differently
     assert next_in_folder(f"{d}/clip 5.mp4") == j("clip 10.mp4")  # renamed or deleted since
     assert next_in_folder(f"{d}/missing/x.mp4") is None
+
+
+def test_media_kinds():
+    from mosaicplayer.playlist import GIF, IMAGE, VIDEO, is_media, media_kind
+    assert media_kind("a.MP4") == VIDEO and media_kind("b.mkv") == VIDEO
+    assert media_kind("c.GIF") == GIF
+    for name in ("d.jpg", "e.JPEG", "f.png", "g.webp", "h.bmp", "i.tiff", "j.heic", "k.avif"):
+        assert media_kind(name) == IMAGE, name
+    for name in ("notes.txt", "list.gpls", "noext", "._clip.mp4", "._photo.jpg"):
+        assert not is_media(name), name
+
+
+def test_entries_have_ids_and_follow_their_path():
+    a, b = Entry("/v/a.mp4"), Entry("/v/a.mp4")
+    assert a.id != b.id
+    assert a == b  # the id is not part of what an entry is (playlists compare equal)
+    a.path = "/v/photo.jpg"  # a tile replacing its file
+    assert a.kind == "image"
+    assert Entry("/v/unknown.xyz").kind == "video"  # tried as a video; mpv decides
+    assert "id" not in a.to_gpls_params()
+
+
+def test_expand_folder_one_level(tmp_path):
+    (tmp_path / "sub").mkdir()
+    for name in ["clip 10.mp4", "clip 2.mp4", "photo.jpg", "anim.gif", "notes.txt",
+                 "sub/deep.mp4"]:
+        (tmp_path / name).write_bytes(b"")
+    entries, _ = expand_inputs([tmp_path], recursive=False)
+    assert [os.path.basename(e.path) for e in entries] == [
+        "anim.gif", "clip 2.mp4", "clip 10.mp4", "photo.jpg"]
+    entries, _ = expand_inputs([tmp_path])  # recursive by default (Add folder with subfolders)
+    assert len(entries) == 5

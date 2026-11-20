@@ -1,21 +1,15 @@
-"""Log file and update check (for bug reports and new releases)."""
+"""Log file (for bug reports). The app makes no network calls (build plan rule 7)."""
 
 from __future__ import annotations
 
-import json
 import logging
 import logging.handlers
-import re
 import sys
-import urllib.request
 from pathlib import Path
 
 from PySide6.QtCore import QStandardPaths
 
 from . import __version__
-
-RELEASES_API = "https://api.github.com/repos/itsui/mosaicplayer/releases/latest"
-RELEASES_PAGE = "https://github.com/itsui/mosaicplayer/releases"
 
 
 def log_dir() -> Path:
@@ -44,22 +38,3 @@ def setup_logging(debug: bool) -> None:
         logging.getLogger("mosaicplayer").error("Unexpected error", exc_info=(kind, value, tb))
 
     sys.excepthook = log_uncaught  # errors in Qt callbacks end up in the log too
-
-
-def _version_tuple(text: str) -> tuple[int, ...]:
-    return tuple(int(n) for n in re.findall(r"\d+", text)[:3])
-
-
-def latest_release(timeout=8.0) -> tuple[str, str] | None:
-    """(version, page URL) of the newest release if newer than this one, else None.
-
-    Raises OSError / ValueError when GitHub can't be reached or answers oddly.
-    """
-    request = urllib.request.Request(RELEASES_API, headers={
-        "Accept": "application/vnd.github+json", "User-Agent": f"MosaicPlayer/{__version__}"})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        data = json.load(response)
-    tag = str(data.get("tag_name", ""))
-    if _version_tuple(tag) > _version_tuple(__version__):
-        return tag.lstrip("v"), str(data.get("html_url") or RELEASES_PAGE)
-    return None

@@ -13,7 +13,7 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QOpenGLContext
 from PySide6.QtOpenGL import QOpenGLFramebufferObject
 
-from .playlist import Entry
+from .playlist import IMAGE, Entry
 from .render import TileTarget
 
 log = logging.getLogger(__name__)
@@ -148,7 +148,8 @@ class Tile(QObject):
 
         # GPU modes start on the GPU (if there's room) before the size is known;
         # auto/CPU start on the CPU and move up once the video turns out large.
-        start_gpu = policy.mode in (GPU_COPY, GPU_ZERO_COPY) and policy.decide(id(self), 30.0)
+        start_gpu = (policy.mode in (GPU_COPY, GPU_ZERO_COPY) and entry.kind != IMAGE
+                     and policy.decide(id(self), 30.0))
         self.uses_gpu = start_gpu
 
         self.player = mpv.MPV(
@@ -157,6 +158,8 @@ class Tile(QObject):
             gpu_hwdec_interop=policy.interop,
             loop_file="inf" if end_action == LOOP else "no",
             keep_open="yes",
+            # Still images stay on screen (mpv's default shows them for 1 s).
+            image_display_duration="inf",
             mute="yes" if entry.muted else "no",
             aid="no" if entry.muted else "auto",
             pause=entry.paused,
@@ -175,7 +178,7 @@ class Tile(QObject):
             input_default_bindings=False,
             input_vo_keyboard=False,
             terminal=False,
-            ytdl="://" in entry.path,  # resolve web pages via yt-dlp if installed
+            ytdl=False,  # local files only: no network (build plan rule 7)
             sub_auto="no",
             log_handler=_mpv_log if log.isEnabledFor(logging.DEBUG) else None,
             loglevel="v" if log.isEnabledFor(logging.DEBUG) else "warn",
@@ -201,6 +204,10 @@ class Tile(QObject):
         if not params or not params.get("aspect"):
             return
         aspect = params["aspect"]
+        if params.get("rotate", 0) % 180 == 90:
+            # mpv reports the shape before rotation (EXIF orientation, a phone
+            # video's rotation tag) but shows it rotated: lay out the shown shape.
+            aspect = 1 / aspect
         if not self.aspect_known or abs(aspect - self.aspect) > 1e-3:
             self.aspect = aspect
             self.aspect_known = True
@@ -242,9 +249,15 @@ class Tile(QObject):
 
     @_while_open
     def apply_decoder_policy(self):
-        fps = self.player.container_fps or 30.0
-        self.load_mpx = self._video_pixels * fps / 1e6
-        use_gpu = self.policy.decide(id(self), self.load_mpx)
+        if self.entry.kind == IMAGE:
+            # A still decodes once: a GPU decoder slot would be wasted on it.
+            self.load_mpx = 0.0
+            self.policy.release(id(self))
+            use_gpu = False
+        else:
+            fps = self.player.container_fps or 30.0
+            self.load_mpx = self._video_pixels * fps / 1e6
+            use_gpu = self.policy.decide(id(self), self.load_mpx)
         if use_gpu != self.uses_gpu:
             self.uses_gpu = use_gpu
             self.player.hwdec = self.policy.gpu_hwdec if use_gpu else "no"
@@ -458,10 +471,12 @@ class Tile(QObject):
 
     @_while_open
     def replace(self, path: str):
+        """Load another file into this tile's player (volume and mute carry over)."""
         self.entry.path = path
         self.error = None
         self.aspect_known = False
         self.created = time.monotonic()
+        self.reset_zoom()  # a new file starts at fit
         self.player.play(path)
 
     def close(self):

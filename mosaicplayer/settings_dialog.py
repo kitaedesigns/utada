@@ -75,11 +75,17 @@ class SettingsDialog(QDialog):
         self.start_muted = QCheckBox("Start new videos muted", checked=c.start_muted)
         self.start_random = QCheckBox("Start new videos at a random position", checked=c.start_random)
         self.pause_min = QCheckBox("Pause everything when minimised", checked=c.pause_when_minimized)
+        self.duplicates = QCheckBox("Allow the same file on the wall more than once",
+                                    checked=c.allow_duplicates)
+        self.recursive = QCheckBox("Dropped folders include their subfolders",
+                                   checked=c.recursive_folders)
         form = QFormLayout()
         form.addRow("When a video ends", self.end_action)
         form.addRow(self.start_muted)
         form.addRow(self.start_random)
         form.addRow(self.pause_min)
+        form.addRow(self.duplicates)
+        form.addRow(self.recursive)
         tabs.addTab(_page(form), "Playback")
 
         # Decoding
@@ -184,7 +190,9 @@ class SettingsDialog(QDialog):
                             (self.recent_limit, d.recent_limit)):
             spin.setValue(value)
         for check, value in ((self.start_muted, d.start_muted), (self.start_random, d.start_random),
-                             (self.pause_min, d.pause_when_minimized), (self.on_top, d.stay_on_top),
+                             (self.pause_min, d.pause_when_minimized),
+                             (self.duplicates, d.allow_duplicates),
+                             (self.recursive, d.recursive_folders), (self.on_top, d.stay_on_top),
                              (self.menubar, d.show_menubar), (self.start_fs, d.start_fullscreen),
                              (self.save_positions, d.save_positions),
                              (self.save_paused, d.save_paused)):
@@ -206,6 +214,8 @@ class SettingsDialog(QDialog):
             start_muted=self.start_muted.isChecked(),
             start_random=self.start_random.isChecked(),
             pause_when_minimized=self.pause_min.isChecked(),
+            allow_duplicates=self.duplicates.isChecked(),
+            recursive_folders=self.recursive.isChecked(),
             decoder_mode=self.decoder_mode.currentData(),
             hwdec_api=self.hwdec_api.currentData(),
             gpu_budget_mpx=float(self.budget.value()),
