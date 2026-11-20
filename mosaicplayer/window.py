@@ -23,8 +23,10 @@ from .support import log_dir
 from .options import END_ACTIONS
 
 HELP = f"""<h3>{APP_NAME} keys</h3><table cellspacing=4>
-<tr><td><b>Space</b></td><td>pause / play all</td><td><b>Click</b></td><td>pause one</td></tr>
-<tr><td><b>M</b></td><td>mute / unmute all</td><td><b>Middle-click</b></td><td>mute / unmute one</td></tr>
+<tr><td><b>Space</b></td><td>pause / play current tile</td><td><b>Click</b></td><td>pause one</td></tr>
+<tr><td><b>M</b></td><td>mute / unmute current tile</td><td><b>Middle-click</b></td><td>mute / unmute one</td></tr>
+<tr><td><b>↑ ↓</b></td><td>volume of current tile</td><td><b>Shift+Space</b>, <b>Shift+M</b></td><td>pause, mute all</td></tr>
+<tr><td><b>PgDn</b>, <b>N</b></td><td>next file in the folder</td><td><b>PgUp</b>, <b>P</b></td><td>previous file in the folder</td></tr>
 <tr><td><b>Wheel</b></td><td>seek ±5 s (Shift ±30 s)</td><td><b>← →</b></td><td>seek current video (GIF, image: previous / next in folder)</td></tr>
 <tr><td><b>Ctrl+wheel</b></td><td>zoom into the hovered video</td><td><b>Z</b></td><td>reset zoom</td></tr>
 <tr><td><b>Double-click</b>, <b>Enter</b></td><td>focus one video</td><td><b>Esc</b></td><td>show all / leave fullscreen</td></tr>
@@ -33,7 +35,7 @@ HELP = f"""<h3>{APP_NAME} keys</h3><table cellspacing=4>
 <tr><td><b>C</b></td><td>allow cropping on / off</td><td><b>[ ]</b></td><td>gap smaller / bigger</td></tr>
 <tr><td><b>B</b></td><td>puzzle tile sizes: equal / balanced / fill</td><td></td><td></td></tr>
 <tr><td><b>+ / −</b>, <b>Alt+wheel</b></td><td>make current tile bigger / smaller</td><td><b>0</b></td><td>normal size</td></tr>
-<tr><td><b>N</b></td><td>random video from the same folder</td><td><b>S</b></td><td>random positions for all</td></tr>
+<tr><td><b>S</b></td><td>random positions for all</td><td></td><td></td></tr>
 <tr><td><b>Y</b></td><td>sync all to current video's time</td><td><b>Home</b></td><td>restart all</td></tr>
 <tr><td><b>F</b>, <b>F11</b></td><td>fullscreen</td><td><b>H</b></td><td>stats overlay</td></tr>
 <tr><td><b>T</b></td><td>stay on top</td><td><b>Ctrl+M</b></td><td>show / hide the menu bar</td></tr>
@@ -152,12 +154,23 @@ class MainWindow(QMainWindow):
             tile.seek(5 * step)
 
     def _current(self, fn):
-        """An action on the current tile (Canvas.current: plan 2.3's rule), if any."""
+        """An action on the current tile (Canvas.current: plan 2.3's rule), if any.
+
+        The tile's hover controls come up, so the key's effect is visible.
+        """
         def run(*_):
             tile = self.canvas.current
             if tile is not None:
                 fn(tile)
+                self.canvas.show_bar(tile)
+                self.canvas.update()
         return run
+
+    @staticmethod
+    def _volume_step(tile: Tile, step: float):
+        if step > 0 and tile.entry.muted:
+            tile.set_muted(False)  # turning it up makes it heard
+        tile.set_volume(max(0.0, min(1.0, round(tile.entry.volume + step, 2))))
 
     def _build_menus(self):
         c = self.canvas
@@ -179,8 +192,18 @@ class MainWindow(QMainWindow):
         self._act(m, "Quit", self.close, ["Ctrl+Q"])
 
         m = self.play_menu = bar.addMenu("&Playback")
-        self._act(m, "Pause / play all", lambda: c.set_all_paused(not c.all_paused()), ["Space"])
-        self._act(m, "Mute / unmute all", self.toggle_mute_all, ["M"])
+        # Space and M act on the current tile (plan 2.4); with Shift, on all.
+        self._act(m, "Pause / play current tile", self._current(lambda t: t.toggle_pause()),
+                  ["Space"])
+        self._act(m, "Mute / unmute current tile",
+                  self._current(lambda t: t.set_muted(not t.entry.muted)), ["M"])
+        self._act(m, "Current tile louder", self._current(lambda t: self._volume_step(t, 0.1)),
+                  ["Up"])
+        self._act(m, "Current tile quieter",
+                  self._current(lambda t: self._volume_step(t, -0.1)), ["Down"])
+        self._act(m, "Pause / play all", lambda: c.set_all_paused(not c.all_paused()),
+                  ["Shift+Space"])
+        self._act(m, "Mute / unmute all", self.toggle_mute_all, ["Shift+M"])
         self._act(m, "Restart all", c.restart_all, ["Home"])
         self._act(m, "Random positions for all", lambda: [t.seek_random() for t in c.tiles], ["S"])
         self._act(m, "Sync all to the current video", self._current(c.sync_to), ["Y"])
@@ -201,8 +224,12 @@ class MainWindow(QMainWindow):
                   self._current(lambda t: self._left_right(t, -1)), ["Left"])
         self._act(m, "Seek forward 5 s (GIF, image: next in folder)",
                   self._current(lambda t: self._left_right(t, 1)), ["Right"])
+        self._act(m, "Next file in the current tile's folder",
+                  self._current(lambda t: c.step_file(t, 1)), ["PgDown", "N"])
+        self._act(m, "Previous file in the current tile's folder",
+                  self._current(lambda t: c.step_file(t, -1)), ["PgUp", "P"])
         self._act(m, "Replace current with random from its folder",
-                  self._current(c.replace_with_random), ["N"])
+                  self._current(c.replace_with_random))
         self._act(m, "Reset zoom of current tile", self._current(lambda t: t.reset_zoom()), ["Z"])
         self._act(m, "Make current tile bigger", self._current(lambda t: c.resize_tile(t, 1)),
                   ["+", "=", "Shift+="])

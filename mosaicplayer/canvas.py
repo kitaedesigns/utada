@@ -14,11 +14,13 @@ import threading
 import time
 
 from PySide6.QtCore import QEvent, QPointF, QRect, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QImage, QOpenGLContext, QPainter, QPen
+from PySide6.QtGui import (QColor, QCursor, QFont, QFontMetricsF, QImage, QOpenGLContext,
+                           QPainter, QPen)
 from PySide6.QtOpenGL import QOpenGLTextureBlitter
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QToolTip
 
+from . import hoverbar
 from .config import Config
 from .layout import (LayoutResult, Rect, fixed_grid, grid_layout, justified_columns,
                      justified_rows, puzzle)
@@ -98,6 +100,17 @@ class Canvas(QOpenGLWidget):
 
         self._cursor_timer = QTimer(self, singleShot=True)
         self._cursor_timer.timeout.connect(self._hide_cursor)
+
+        # Hover controls (plan 2.4): one tile's bars at a time, faded in and out.
+        self._bar_tile: Tile | None = None
+        self._bar_opacity = 0.0
+        self._bar_fade: tuple[float, float, float] = (0.0, 0.0, 0.0)  # from, to, start time
+        self._bar_hot: str | None = None  # control under the mouse
+        self._bar_drag: tuple[str, Tile] | None = None  # ("seek" | "volume", tile) while dragging
+        self._bar_idle = QTimer(self, singleShot=True, interval=hoverbar.IDLE_MS)
+        self._bar_idle.timeout.connect(self._bar_idle_timeout)
+        self._bar_timer = QTimer(self, interval=16)  # runs only while fading
+        self._bar_timer.timeout.connect(self._bar_step)
 
     def _make_policy(self) -> DecoderPolicy:
         c = self.cfg
@@ -201,6 +214,12 @@ class Canvas(QOpenGLWidget):
             self.hovered = None
         if self.last_hovered is tile:
             self.last_hovered = None  # don't keep a closed player alive
+        if self._bar_tile is tile:
+            self._bar_tile, self._bar_opacity, self._bar_hot = None, 0.0, None
+            self._bar_timer.stop()
+            QToolTip.hideText()
+        if self._bar_drag is not None and self._bar_drag[1] is tile:
+            self._bar_drag = None
 
     def remove_tile(self, tile: Tile):
         if tile not in self.tiles:
@@ -539,8 +558,9 @@ class Canvas(QOpenGLWidget):
         return QRectF(rect.x / dpr, rect.y / dpr, rect.w / dpr, rect.h / dpr)
 
     def _paint_overlays(self, p: QPainter):
-        cursor_visible = self.cursor().shape() != Qt.BlankCursor
-        hovered = self.hovered if cursor_visible else None
+        # The tile with the hover controls: its own title and icons step aside.
+        bar_tile = self._bar_tile if self._bars_shown() else None
+        hovered = bar_tile
         animating = time.perf_counter() - self._animation_start < ANIMATION_S
         if animating:
             # Tiles are moving: draw everything live so overlays stay on them.
@@ -565,13 +585,12 @@ class Canvas(QOpenGLWidget):
             p.drawImage(0, 0, self._overlay_image)
         p.setFont(self._overlay_font())
         p.setRenderHint(QPainter.Antialiasing)
-        if hovered is not None and hovered in self._layout_tiles:
-            r = self._rect_of(hovered)
-            if not hovered.error:
-                self._paint_info_bar(p, hovered, r, full=True)
-                p.setPen(QPen(QColor(255, 255, 255, 110), 1.5))
-                p.setBrush(Qt.NoBrush)
-                p.drawRect(r.adjusted(0.75, 0.75, -0.75, -0.75))
+        if bar_tile is not None:
+            bars = self._bars_for(bar_tile)
+            if bars is not None:
+                facts = "  ·  ".join(_tile_facts(bar_tile, with_time=False)[1:])
+                hoverbar.paint_bars(p, bars, bar_tile, self._bar_opacity, self._bar_hot, facts,
+                                    self.solo is bar_tile, self._overlay_font())
         if self._dragging and self._press and self.hovered and self.hovered is not self._press[1]:
             target = self._rect_of(self.hovered)
             if target:
@@ -648,6 +667,8 @@ class Canvas(QOpenGLWidget):
                 # Opening (a large GIF can take a moment): say so instead of black.
                 p.setPen(QColor(150, 150, 150))
                 p.drawText(r, Qt.AlignCenter, "Loading…")
+            if tile is skip:
+                continue  # its hover controls show all of this
             if tile.paused and tile.entry.kind != IMAGE:
                 p.setPen(Qt.NoPen)
                 p.setBrush(QColor(0, 0, 0, 140))
@@ -658,7 +679,7 @@ class Canvas(QOpenGLWidget):
             if not tile.entry.muted and tile.has_audio is not False:
                 p.setPen(QColor(120, 220, 255))
                 p.drawText(QPointF(r.left() + 8, r.top() + 20), "🔊")
-            if self.cfg.titles == "always" and tile is not skip:
+            if self.cfg.titles == "always":
                 self._paint_info_bar(p, tile, r, full=False)
 
     def _paint_info_bar(self, p: QPainter, tile: Tile, r: QRectF, full: bool):
@@ -711,31 +732,165 @@ class Canvas(QOpenGLWidget):
                 return self._logical(self._shown_rect(t, rect))
         return None
 
+    # --- hover controls (plan 2.4) -------------------------------------------
+
+    def _bars_for(self, tile: Tile) -> hoverbar.Bars | None:
+        r = self._rect_of(tile)
+        if r is None or tile.error:
+            return None
+        return hoverbar.layout_bars(r, tile.entry.kind, self._time_width())
+
+    def _time_width(self) -> float:
+        return QFontMetricsF(self._overlay_font()).horizontalAdvance("00:00") + 4
+
+    def _bars_shown(self) -> bool:
+        return (self._bar_tile is not None and self._bar_opacity > 0
+                and self.pick is None and self.drop_hint is None and not self._dragging)
+
+    def _live_bars(self, pos: QPointF) -> tuple[Tile, hoverbar.Bars] | None:
+        """The shown bars, if ``pos`` is on them (clicks there go to the controls)."""
+        if not self._bars_shown() or self._bar_opacity < 0.5:
+            return None
+        bars = self._bars_for(self._bar_tile)
+        if bars is None or not bars.contains(pos):
+            return None
+        return self._bar_tile, bars
+
+    def show_bar(self, tile: Tile | None):
+        """Fade in ``tile``'s controls (or keep them up); they hide after the idle time."""
+        if tile is None or tile not in self.tiles:
+            return
+        if tile is not self._bar_tile:
+            self._bar_tile = tile
+            self._bar_opacity = 0.0
+            self._bar_hot = None
+            self.update()
+        self._fade_bar(1.0)
+        self._bar_idle.start()
+        self._sync_overlay_timer()
+
+    def hide_bar(self):
+        self._fade_bar(0.0)
+
+    def _fade_bar(self, to: float):
+        if self._bar_fade[1] == to and (self._bar_timer.isActive() or self._bar_opacity == to):
+            return
+        self._bar_fade = (self._bar_opacity, to, time.monotonic())
+        self._bar_timer.start()
+
+    def _bar_step(self):
+        start, end, t0 = self._bar_fade
+        k = min(1.0, (time.monotonic() - t0) / hoverbar.FADE_S)
+        self._bar_opacity = start + (end - start) * k
+        if k >= 1.0:
+            self._bar_timer.stop()
+            if self._bar_opacity == 0.0:
+                self._bar_hot = None
+                QToolTip.hideText()
+            self._sync_overlay_timer()
+        self.update()
+
+    def _bar_idle_timeout(self):
+        # Keep the controls while the mouse rests on them or drags a slider.
+        pos = self.mapFromGlobal(QCursor.pos()).toPointF()
+        if self._bar_drag is not None or self._live_bars(pos) is not None:
+            self._bar_idle.start()
+            return
+        self.hide_bar()
+
+    def _bar_hover(self, pos: QPointF, global_pos):
+        live = self._live_bars(pos)
+        hot = live[1].control_at(pos) if live else None
+        if hot != self._bar_hot:
+            self._bar_hot = hot
+            tip = hoverbar.tip_for(hot, live[0], self.solo is live[0]) if live else ""
+            if tip:
+                QToolTip.showText(global_pos, tip, self)
+            else:
+                QToolTip.hideText()
+            self.update()
+
+    def _bar_press(self, tile: Tile, bars: hoverbar.Bars, pos: QPointF):
+        name = bars.control_at(pos)
+        if name == "play":
+            tile.toggle_pause()
+        elif name in ("prev", "next"):
+            self.step_file(tile, -1 if name == "prev" else 1)
+        elif name == "mute":
+            tile.set_muted(not tile.entry.muted)
+        elif name == "volume":
+            self._bar_drag = ("volume", tile)
+            self._bar_slide(pos)
+        elif name == "seek":
+            self._bar_drag = ("seek", tile)
+            self._bar_slide(pos)
+        elif name == "mode":
+            tile.set_end_action(hoverbar.next_mode(tile.end_action))
+            self._bar_hot = None  # show the new mode's tooltip
+        elif name == "focus":
+            self.set_solo(None if self.solo is tile else tile)
+        elif name == "close":
+            self.remove_tile(tile)
+            return
+        self.show_bar(tile)
+        self.update()
+
+    def _bar_slide(self, pos: QPointF, done=False):
+        what, tile = self._bar_drag
+        bars = self._bars_for(tile)
+        if bars is None or what not in bars.controls:
+            return
+        if what == "volume":
+            if tile.entry.muted:
+                tile.set_muted(False)  # dragging the volume up unmutes, like most players
+            tile.set_volume(hoverbar.volume_fraction(bars, pos.x()))
+        else:
+            _, dur = tile.progress()
+            if dur > 0:
+                tile.seek_to(hoverbar.seek_fraction(bars, pos.x()) * dur, exact=done)
+        self.update()
+
+    # --- mouse --------------------------------------------------------------
+
     def mouseMoveEvent(self, event):
         self.unsetCursor()
         if self.cfg.hide_cursor_ms > 0:
             self._cursor_timer.start(self.cfg.hide_cursor_ms)
         pos = event.position()
+        if self._bar_drag is not None:
+            self._bar_slide(pos)
+            self._bar_idle.start()
+            return
         if self._press and not self._dragging:
             if (pos - self._press[0]).manhattanLength() > DRAG_THRESHOLD_PX:
                 self._dragging = True
+                QToolTip.hideText()
         if self._dragging:
             self.setCursor(Qt.ClosedHandCursor)
         tile = self.tile_at(pos)
         if tile is not None:
             self.last_hovered = tile
+            self.show_bar(tile)
         if tile is not self.hovered:
             self.hovered = tile
             self.update()
+        self._bar_hover(pos, event.globalPosition().toPoint())
         self._sync_overlay_timer()
 
     def leaveEvent(self, event):
+        # The controls stay for the idle time, then fade (plan 2.4).
         self.hovered = None
+        if self._bar_hot is not None:
+            self._bar_hot = None
+            QToolTip.hideText()
         self._sync_overlay_timer()
         self.update()
 
     def _hide_cursor(self):
+        if self._bar_drag is not None:
+            return
         self.setCursor(Qt.BlankCursor)
+        self.hide_bar()
         self._sync_overlay_timer()
         self.update()
 
@@ -745,15 +900,22 @@ class Canvas(QOpenGLWidget):
         self.update()
 
     def _sync_overlay_timer(self):
-        needed = self.show_hud or (self.hovered is not None
-                                   and self.cursor().shape() != Qt.BlankCursor)
+        # The seek bar moves even when no video draws a new frame (paused, stills).
+        needed = self.show_hud or self._bars_shown()
         if needed and not self._overlay_timer.isActive():
             self._overlay_timer.start()
         elif not needed:
             self._overlay_timer.stop()
 
     def mousePressEvent(self, event):
-        tile = self.tile_at(event.position())
+        pos = event.position()
+        tile = self.tile_at(pos)
+        if self.pick is None and event.button() == Qt.LeftButton:
+            live = self._live_bars(pos)
+            if live is not None:
+                # The bars are controls: no pause toggle, no tile drag from here.
+                self._bar_press(*live, pos)
+                return
         if self.pick is not None:
             # Choosing a tile to replace: a left click on a tile answers;
             # nothing else plays, pauses or drags meanwhile.
@@ -774,6 +936,10 @@ class Canvas(QOpenGLWidget):
             self.update()
 
     def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and self._bar_drag is not None:
+            self._bar_slide(event.position(), done=True)  # seeks land on the exact frame
+            self._bar_drag = None
+            return
         if event.button() != Qt.LeftButton or not self._press:
             return
         _, source = self._press
@@ -792,6 +958,11 @@ class Canvas(QOpenGLWidget):
         if self.pick is not None or (time.monotonic() - self._pick_done_at
                                      < QApplication.doubleClickInterval() / 1000):
             return  # the click that chose a tile (or a click while choosing)
+        live = self._live_bars(event.position()) if event.button() == Qt.LeftButton else None
+        if live is not None:
+            # Quick clicks on a control are two clicks (next, next), not a focus:
+            # Qt already sent the second click as a press, which acted on it.
+            return
         tile = self.tile_at(event.position())
         if tile is not None and event.button() == Qt.LeftButton:
             self._press = None  # don't treat the second click as a pause toggle
@@ -802,6 +973,7 @@ class Canvas(QOpenGLWidget):
         tile = self.tile_at(event.position())
         if tile is None:
             return
+        self.show_bar(tile)
         mods = event.modifiers()
         action = ("size" if mods & Qt.AltModifier else "zoom" if mods & Qt.ControlModifier
                   else "seek-long" if mods & Qt.ShiftModifier else "seek")
@@ -894,19 +1066,25 @@ class Canvas(QOpenGLWidget):
         self._relayout_now()
 
     def step_image(self, tile: Tile, step: int):
-        """Show the previous (-1) or next (+1) picture (GIF or image) of the folder.
+        """Show the previous (-1) or next (+1) picture (GIF or image) of the folder."""
+        self._step(tile, step, {GIF, IMAGE}, "No other GIFs or images in this folder")
 
-        Pictures already shown in other tiles are skipped unless duplicates are allowed.
-        """
-        images = folder_media(tile.entry.path, {GIF, IMAGE})
+    def step_file(self, tile: Tile, step: int):
+        """Previous (-1) or next (+1) file of any kind in the tile's folder
+        (the hover bar's buttons, PageUp / PageDown; plan 2.4, 2.13)."""
+        self._step(tile, step, {VIDEO, GIF, IMAGE}, "No other files in this folder")
+
+    def _step(self, tile: Tile, step: int, kinds: set, nothing: str):
+        """Files already shown in other tiles are skipped unless duplicates are allowed."""
+        files = folder_media(tile.entry.path, kinds)
         if not self.cfg.allow_duplicates:
             elsewhere = {os.path.normcase(os.path.abspath(t.entry.path))
                          for t in self.tiles if t is not tile}
-            images = [f for f in images
-                      if os.path.normcase(os.path.abspath(f)) not in elsewhere]
-        following = step_in_folder(tile.entry.path, images, step)
+            files = [f for f in files
+                     if os.path.normcase(os.path.abspath(f)) not in elsewhere]
+        following = step_in_folder(tile.entry.path, files, step)
         if following is None:
-            self.message.emit("No other GIFs or images in this folder")
+            self.message.emit(nothing)
             return
         self.replace_tile(tile, following)
 
@@ -997,7 +1175,7 @@ def _size_text(n: int | None) -> str:
     return f"{n} B"
 
 
-def _tile_facts(tile: Tile) -> list[str]:
+def _tile_facts(tile: Tile, with_time=True) -> list[str]:
     """What the hover bar says about a tile: name, type, size, time, decoder.
 
     The plan keeps tiles free of permanent badges (2.14): type, resolution and
@@ -1014,7 +1192,7 @@ def _tile_facts(tile: Tile) -> list[str]:
     size = _size_text(tile.file_bytes)
     if size:
         facts.append(size)
-    if kind != IMAGE:
+    if kind != IMAGE and with_time:
         pos, dur = tile.progress()
         facts.append(f"{_fmt(pos)} / {_fmt(dur)}")
     if kind == VIDEO:

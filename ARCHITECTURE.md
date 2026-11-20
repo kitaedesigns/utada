@@ -42,6 +42,7 @@ The app is **Diva Video Player** (`mosaicplayer.APP_NAME`); the Python package k
 - **Decoding:** `DecoderPolicy` (`tile.py`) now defaults to `gpu-copy` for every video (`d3d11va-copy` on Windows). GIFs and stills always decode on the CPU. Values that decoder decisions need (frame rate, tracks, decode path) come from mpv's property observers; the UI thread doesn't wait on the player for them.
 - **Media kinds:** `Entry.kind` comes from the extension; an image that mpv reports as animated (WebP, AVIF) counts as a GIF (`Entry.animated_path`).
 - **No network:** the update check, Open URL and yt-dlp are removed.
+- **Hover controls** (`hoverbar.py`): `layout_bars` gives the bars' and controls' rectangles for a tile on screen (pure geometry, unit-tested); `paint_bars` draws them. The canvas keeps one bar tile (`_bar_tile`) with its fade state, and uses the same geometry to route clicks and slider drags (`_live_bars`, `_bar_press`, `_bar_slide`), so drawing and hit-testing can't disagree.
 
 ## Implication for the target app
 

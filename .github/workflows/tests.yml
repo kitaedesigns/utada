@@ -25,7 +25,7 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: python -m pyflakes mosaicplayer tests
       - name: Layout, playlist and settings tests
-        run: python -m pytest -q tests/test_layout.py tests/test_playlist.py tests/test_config.py
+        run: python -m pytest -q tests/test_layout.py tests/test_playlist.py tests/test_config.py tests/test_hoverbar.py
       - name: End-to-end tests (real window on a virtual display)
         # Software OpenGL on a virtual display can be slow or flaky: report, don't block.
         continue-on-error: true

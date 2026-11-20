@@ -12,7 +12,7 @@ import sys
 import time
 
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPointF, Qt
 
 HAS_DISPLAY = sys.platform == "win32" or os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
 pytestmark = pytest.mark.skipif(not HAS_DISPLAY or not shutil.which("ffmpeg"),
@@ -243,9 +243,9 @@ def test_keyboard_shortcuts(app, window, clips):
         QTest.keyClick(c, k, mod)
         pump(app, 0.2)
 
-    key(Qt.Key_Space)
+    key(Qt.Key_Space, Qt.ShiftModifier)  # Shift+Space: all (Space alone: the current tile)
     assert c.all_paused()
-    key(Qt.Key_Space)
+    key(Qt.Key_Space, Qt.ShiftModifier)
     for i, mode in enumerate(["puzzle", "rows", "columns", "grid", "fixed-grid"], 1):
         key(getattr(Qt, f"Key_{i}"))
         assert cfg.layout_mode == mode
@@ -275,7 +275,7 @@ def test_keyboard_shortcuts(app, window, clips):
     while app.activeWindow() is not window and time.monotonic() < deadline:
         pump(app, 0.05)
     assert cfg.stay_on_top
-    key(Qt.Key_Space)
+    key(Qt.Key_Space, Qt.ShiftModifier)
     assert c.all_paused()
     key(Qt.Key_T)
 
@@ -838,3 +838,124 @@ def test_focus_mode_round_trip_and_pausing_others(app, window, clips):
     window.escape()  # Esc leaves focus mode
     pump(app, 0.5)
     assert c.solo is None and c.rects == before  # back to the same layout
+
+
+# --- Phase 2.4: hover controls --------------------------------------------------------------
+
+
+def _mouse(c, kind, point, buttons=Qt.NoButton, button=Qt.NoButton):
+    """Send a mouse event straight to the canvas (QTest moves the real cursor on Windows,
+    and the event then goes to whatever window is under it)."""
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtWidgets import QApplication
+    types = {"move": QEvent.MouseMove, "press": QEvent.MouseButtonPress,
+             "release": QEvent.MouseButtonRelease, "double": QEvent.MouseButtonDblClick}
+    point = QPointF(point)
+    event = QMouseEvent(types[kind], point, c.mapToGlobal(point), button, buttons,
+                        Qt.NoModifier)
+    QApplication.sendEvent(c, event)
+
+
+def _hover(app, c, tile):
+    """Move the mouse onto ``tile`` and wait for its controls to fade in."""
+    _mouse(c, "move", c._rect_of(tile).center())
+    pump(app, 0.4)
+    return c._bars_for(tile)
+
+
+def _click(app, c, point, double=False):
+    _mouse(c, "move", point)
+    _mouse(c, "press", point, Qt.LeftButton, Qt.LeftButton)
+    _mouse(c, "release", point, Qt.NoButton, Qt.LeftButton)
+    if double:  # Qt sends the second click as a press, then a double-click event
+        _mouse(c, "press", point, Qt.LeftButton, Qt.LeftButton)
+        _mouse(c, "double", point, Qt.LeftButton, Qt.LeftButton)
+        _mouse(c, "release", point, Qt.NoButton, Qt.LeftButton)
+    pump(app, 0.2)
+
+
+def test_hover_controls_fade_in_act_and_fade_out(app, window, media22):
+    c = window.canvas
+    window.load([media22 / "sound.mp4"])
+    pump(app, 1.5)
+    tile = c.tiles[0]
+    assert not c._bars_shown()
+    bars = _hover(app, c, tile)
+    assert c._bar_tile is tile and c._bar_opacity == 1.0 and c._overlay_timer.isActive()
+    paused = tile.paused
+    _click(app, c, bars.controls["play"].center())
+    assert tile.paused is not paused
+    _click(app, c, bars.bottom.topLeft() + QPointF(bars.controls["play"].width() * 2.5, 2))
+    assert tile.paused is not paused  # a click on the bar itself doesn't pause the video
+    muted = tile.entry.muted
+    _click(app, c, bars.controls["mute"].center())
+    assert tile.entry.muted is not muted
+    vol = bars.controls["volume"]
+    _click(app, c, QPointF(vol.left() + 4 + (vol.width() - 8) * 0.25, vol.center().y()))
+    assert abs(tile.entry.volume - 0.25) < 0.02 and not tile.entry.muted
+    assert tile.end_action == "loop"
+    _click(app, c, bars.controls["mode"].center())
+    assert tile.end_action == "next" and tile.player.loop_file is False
+    _click(app, c, bars.controls["mode"].center())
+    _click(app, c, bars.controls["mode"].center())
+    assert tile.end_action == "loop"
+    seek = bars.controls["seek"]
+    _click(app, c, QPointF(seek.left() + seek.width() * 0.75, seek.center().y()))
+    pump(app, 0.3)
+    pos, dur = tile.progress()
+    assert abs(pos - dur * 0.75) < 0.3
+    _click(app, c, bars.controls["focus"].center())
+    assert c.solo is tile
+    _click(app, c, c._bars_for(tile).controls["focus"].center())
+    assert c.solo is None
+    # Idle: the controls fade out (2 s in the app; shortened here).
+    c._bar_idle.setInterval(200)
+    _mouse(c, "move", c._rect_of(tile).center())
+    pump(app, 0.8)
+    assert c._bar_opacity == 0.0 and not c._bars_shown()
+    assert not c._overlay_timer.isActive()  # idle: nothing repaints for the controls
+    c._bar_idle.setInterval(2000)
+    bars = _hover(app, c, tile)
+    _click(app, c, bars.controls["close"].center())
+    assert not c.tiles and c._bar_tile is None
+
+
+def test_hover_controls_per_kind_and_quick_clicks(app, window, media22):
+    c = window.canvas
+    window.load([media22 / "a 1.jpg", media22 / "a 3.gif"])
+    pump(app, 1.5)
+    image, gif = c.tiles
+    assert set(_hover(app, c, gif).controls) >= {"play", "prev", "next", "mode"}
+    assert "seek" not in c._bars_for(gif).controls
+    bars = _hover(app, c, image)
+    assert "play" not in bars.controls and "volume" not in bars.controls
+    # Two quick clicks on Next are two steps, not a double-click that focuses.
+    _click(app, c, bars.controls["next"].center(), double=True)
+    assert os.path.basename(image.entry.path) == "a 10.jpg"  # a 1 -> a 2 -> (a 3 shown) -> a 10
+    assert c.solo is None
+
+
+def test_space_m_and_arrows_act_on_the_current_tile_only(app, window, clips):
+    c = window.canvas
+    window.load([clips / "c0.mp4", clips / "c1.mp4"])
+    pump(app, 1.5)
+    a, b = c.tiles
+    c.hovered = a
+    run = {act.shortcut().toString(): act for act in window.actions() if not act.shortcut().isEmpty()}
+    run["Space"].trigger()
+    assert a.paused and not b.paused
+    run["M"].trigger()
+    assert a.entry.muted is not b.entry.muted
+    a.set_muted(True)
+    a.set_volume(0.5)
+    run["Up"].trigger()
+    assert a.entry.volume == 0.6 and not a.entry.muted  # louder also unmutes
+    run["Down"].trigger()
+    run["Down"].trigger()
+    assert a.entry.volume == 0.4 and b.entry.volume == 1.0
+    assert c._bar_tile is a  # the key brought up that tile's controls
+    run["PgDown"].trigger()  # next file in the folder (c1 is on the wall: skipped)
+    assert os.path.basename(a.entry.path) == "c2.mp4"
+    run["Shift+Space"].trigger()
+    assert c.all_paused()

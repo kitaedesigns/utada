@@ -1,8 +1,38 @@
 # Progress
 
-## Status: Phase 2.3 done (2026-11-20). Next: 2.4 hover controls (reads the "Video Wall Mockup" design first).
+## Status: Phase 2.4 done (2026-11-20). Next: 2.5 global audio (master volume and mute in a footer).
 
 **App name: Diva Video Player** (decided 2026-11-20). It's in the window title, dialogs and About box, which credits MosaicPlayer. The Python package and internal identifiers keep the name `mosaicplayer`. Settings, thumbnails and logs move to `%APPDATA%` / `%LOCALAPPDATA%\Diva Video Player` with the JSON settings in 2.8.
+
+## Phase 2.4: hover controls (R4), done 2026-11-20
+**What changed**
+- **Two floating bars on the hovered tile**, drawn after the "Video Wall Mockup": rounded, dark translucent bars inset from the tile's edges, white icons, the blue accent on the volume level.
+  - Top bar: the name, then type, size, file size and decode path in grey, then focus and close (X).
+  - Bottom bar: play/pause, previous and next file, elapsed time, seek bar, total time, mute, volume slider, and the end-of-clip mode button.
+- **Per kind (plan 2.4):** videos get everything; GIFs get play/pause, previous/next and mode; images get previous/next and mode. Every kind also gets focus and X, as in the mockup (the plan's GIF list leaves them out, which looks like an oversight).
+- **Small tiles** drop the least-needed controls first: volume slider, then the times, then the mode's label, then (videos only) previous/next, then mute. Tiles too short for two bars keep only the bottom one.
+- **Fading:** 0.15 s in when the mouse enters a tile, out 2 s after the mouse stops moving or leaves; never while the mouse rests on the bars or drags a slider. Hiding the cursor (an existing setting) hides them too. A key that acts on a tile brings its bars up, so the change is visible.
+- **Clicks on the bars go only to the controls:** they don't pause the video or start a tile drag. Quick double clicks on a button count as two clicks, not as a focus.
+- **Sliders:** the seek bar follows a drag (fast keyframe seeks while dragging, exact on release); the volume slider follows a drag and unmutes. A muted tile shows its level greyed.
+- **Mode button** cycles Loop → Next → Stop; its tooltip says what each does. Next for GIFs and images (advance after a display time) comes with the queue work in 2.13.
+- **Tooltips** name each control and its key.
+- **Keys (plan 2.4), on the current tile:** Space play/pause, M mute, Up/Down volume ±10%, Left/Right seek 5 s (GIF, image: previous/next picture, from 2.2), PageDown/N and PageUp/P next/previous file in the folder. Pause all and mute all moved to Shift+Space and Shift+M. N no longer means "random file" (out of scope, still in the Playback menu without a key). The hotkey table's Ctrl+M (master mute) comes with 2.5; until then Ctrl+M still shows/hides the menu bar.
+- **No "airspace" problem** (plan 2.4's known risk): mpv renders into textures inside the app's own OpenGL canvas, so the bars are drawn with QPainter over the video.
+- **Not yet:** the move-to-folder button arrives with send-to-folder (2.11).
+
+**Acceptance (plan 2.4)**
+| Test | Result |
+|---|---|
+| Bars appear on hover and hide after 2 s idle | Pass (GUI test; screenshots of all 6 tiles of a mixed wall: video, GIF, image, portrait video) |
+| Never flickers | Pass: one tile's bars at a time, opacity animated at 60 Hz only while fading; badges under the bars step aside |
+| Doesn't block scrubbing, panning, resizing | Pass: only clicks on the bars are taken; outside them the tile behaves as before (wheel seek, Ctrl+wheel zoom, drag to swap). Left-drag scrubbing itself is 2.9 |
+| Works at many tiles without lag | Pass at the 6-tile cap: drawing the bars costs 1–2 ms per frame, for the hovered tile only |
+| Controls per kind | Pass (unit tests: layout per kind, nothing overlaps at any width; GUI tests: play, mute, volume, mode, seek, focus, close, previous/next) |
+| Space, M, Up/Down act on the current tile only | Pass (GUI test) |
+
+**Suite:** pyflakes clean; unit 108 passed (6 new), 2 skipped; GUI 41 passed (3 new). In an earlier full run `test_balanced_sits_between_equal_and_fill` failed once; it fails the same way on the code before this change (it depends on machine speed), and it passed in the final run and in 3 reruns.
+
+**Not explained:** in the first of three screenshot runs, every video showed as paused partway through, with no click or key sent and no pause set by the app's code. It didn't happen in the two runs after, with a check in place that reports any pause the app sets.
 
 ## Phase 2.3: tile layout (R1, R6, R10, R20), done 2026-11-20
 **What changed**
