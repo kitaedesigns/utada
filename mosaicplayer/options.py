@@ -4,7 +4,7 @@
 AUTO, GPU_COPY, GPU_ZERO_COPY, CPU = "auto", "gpu-copy", "gpu-zero-copy", "cpu"
 DECODER_MODES = {
     AUTO: "Auto — CPU for small videos, GPU for large ones",
-    GPU_COPY: "GPU (NVDEC, copy) — every video on the GPU while the budget lasts",
+    GPU_COPY: "GPU (copy) — every video on the GPU while the budget lasts (default)",
     GPU_ZERO_COPY: "GPU zero-copy — least CPU, most video memory",
     CPU: "CPU only",
 }

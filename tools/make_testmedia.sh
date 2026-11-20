@@ -52,7 +52,8 @@ $FF -f lavfi -i "testsrc2=size=1920x1080" -frames:v 1 -c:v libwebp still.webp
 $FF -f lavfi -i "testsrc2=size=1920x1080" -frames:v 1 still.bmp
 $FF -f lavfi -i "testsrc2=size=1920x1080" -frames:v 1 still.tiff
 $FF -f lavfi -i "$(vsrc 480 270 10 2)" -c:v libwebp_anim -loop 0 anim.webp
-$FF -f lavfi -i "color=c=black@0.0:size=800x600,format=rgba,drawbox=x=200:y=150:w=400:h=300:color=blue@0.7:t=fill" -frames:v 1 transparent.png
+# A 70%-opaque blue box on a fully transparent background (drawbox would leave alpha at 0).
+$FF -f lavfi -i "color=c=black:size=800x600,format=rgba,geq=r=0:g=0:b=255:a='if(between(X,200,599)*between(Y,150,449),178,0)'" -frames:v 1 transparent.png
 $FF -f lavfi -i "testsrc2=size=8000x6000" -frames:v 1 -q:v 3 big_8000x6000.jpg
 # EXIF orientation 6: the pixels are stored turned 90 deg counter-clockwise (portrait, text
 # sideways); a viewer that applies the tag turns them 90 deg CW and shows "UP ->" upright, landscape.

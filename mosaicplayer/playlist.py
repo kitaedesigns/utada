@@ -59,11 +59,20 @@ class Entry:
     size_weight: float = 1.0  # relative tile area in puzzle layouts (MosaicPlayer only)
     extra: dict = field(default_factory=dict)  # untouched GridPlayer fields
     id: int = field(default_factory=lambda: next(_ids), compare=False, repr=False)
+    # Set by the player when an image file turns out to be animated (WebP, AVIF):
+    # the path it was found for, so it no longer applies once the path changes.
+    animated_path: str = field(default="", compare=False, repr=False)
 
     @property
     def kind(self) -> str:
-        """VIDEO, GIF or IMAGE (anything not recognised is tried as a video)."""
-        return media_kind(self.path) or VIDEO
+        """VIDEO, GIF or IMAGE (anything not recognised is tried as a video).
+
+        Animated images (WebP, AVIF) count as GIF: they play and loop like one.
+        """
+        kind = media_kind(self.path) or VIDEO
+        if kind == IMAGE and self.animated_path == self.path:
+            return GIF
+        return kind
 
     def to_gpls_params(self, save_position=True, save_paused=True) -> dict:
         params = dict(self.extra)
@@ -319,6 +328,36 @@ def siblings(path: str) -> list[str]:
                       key=natural_key)
     except OSError:
         return []
+
+
+def folder_media(path: str, kinds) -> list[str]:
+    """Files of the given kinds (VIDEO, GIF, IMAGE) in ``path``'s folder, natural order."""
+    folder = Path(path).parent
+    try:
+        return sorted((str(f) for f in folder.iterdir()
+                       if f.is_file() and media_kind(f) in kinds), key=natural_key)
+    except OSError:
+        return []
+
+
+def step_in_folder(path: str, files: list[str], step: int) -> str | None:
+    """The file ``step`` places after (or before) ``path`` in ``files``, wrapping.
+
+    Matched by name, like next_in_folder, so a renamed or deleted current
+    file still has neighbours. None if there is no other file.
+    """
+    if not files:
+        return None
+    key = natural_key(Path(path).name)
+    keys = [natural_key(Path(f).name) for f in files]
+    if key in keys:
+        index = keys.index(key) + step
+    elif step > 0:
+        index = next((i for i, k in enumerate(keys) if k > key), len(files))
+    else:
+        index = max((i for i, k in enumerate(keys) if k < key), default=-1)
+    found = files[index % len(files)]
+    return None if natural_key(Path(found).name) == key else found
 
 
 def next_in_folder(path: str) -> str | None:

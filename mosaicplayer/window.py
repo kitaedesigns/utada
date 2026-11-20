@@ -15,8 +15,8 @@ from . import __version__
 from .canvas import MAX_TILES, Canvas
 from .config import PLAYLIST_FIELDS, Config
 from .layout import BALANCE_MODES, LAYOUT_MODES
-from .playlist import (MEDIA_EXTENSIONS, PLAYLIST_EXTENSIONS, Entry, Playlist, expand_inputs,
-                       is_media, local_path, natural_key, write_gpls)
+from .playlist import (GIF, IMAGE, MEDIA_EXTENSIONS, PLAYLIST_EXTENSIONS, Entry, Playlist,
+                       expand_inputs, is_media, local_path, natural_key, write_gpls)
 from .tile import Tile
 from .settings_dialog import RELOAD_FIELDS, SettingsDialog
 from .support import log_dir
@@ -25,7 +25,7 @@ from .options import END_ACTIONS
 HELP = """<h3>MosaicPlayer keys</h3><table cellspacing=4>
 <tr><td><b>Space</b></td><td>pause / play all</td><td><b>Click</b></td><td>pause one</td></tr>
 <tr><td><b>M</b></td><td>mute / unmute all</td><td><b>Middle-click</b></td><td>mute / unmute one</td></tr>
-<tr><td><b>Wheel</b></td><td>seek ±5 s (Shift ±30 s)</td><td><b>← →</b></td><td>seek hovered video</td></tr>
+<tr><td><b>Wheel</b></td><td>seek ±5 s (Shift ±30 s)</td><td><b>← →</b></td><td>seek hovered video (GIF, image: previous / next in folder)</td></tr>
 <tr><td><b>Ctrl+wheel</b></td><td>zoom into the hovered video</td><td><b>Z</b></td><td>reset zoom</td></tr>
 <tr><td><b>Double-click</b>, <b>Enter</b></td><td>focus one video</td><td><b>Esc</b></td><td>show all / leave fullscreen</td></tr>
 <tr><td><b>Drag</b> a video</td><td>swap it with another</td><td><b>Del</b></td><td>remove hovered video</td></tr>
@@ -143,6 +143,13 @@ class MainWindow(QMainWindow):
             menu.addAction(act)
         return act
 
+    def _left_right(self, tile: Tile, step: int):
+        # GIFs and images have no timeline (plan 2.2, 2.4): flip through the folder.
+        if tile.entry.kind in (GIF, IMAGE):
+            self.canvas.step_image(tile, step)
+        else:
+            tile.seek(5 * step)
+
     def _hovered(self, fn):
         def run(*_):
             tile = self.canvas.hovered
@@ -187,8 +194,11 @@ class MainWindow(QMainWindow):
             group.addAction(act)
             self.end_actions[key] = act
         m.addSeparator()
-        self._act(m, "Seek hovered back 5 s", self._hovered(lambda t: t.seek(-5)), ["Left"])
-        self._act(m, "Seek hovered forward 5 s", self._hovered(lambda t: t.seek(5)), ["Right"])
+        # On a GIF or image tile, Left/Right flip through the folder instead.
+        self._act(m, "Seek hovered back 5 s (GIF, image: previous in folder)",
+                  self._hovered(lambda t: self._left_right(t, -1)), ["Left"])
+        self._act(m, "Seek hovered forward 5 s (GIF, image: next in folder)",
+                  self._hovered(lambda t: self._left_right(t, 1)), ["Right"])
         self._act(m, "Replace hovered with random from its folder",
                   self._hovered(c.replace_with_random), ["N"])
         self._act(m, "Reset zoom of hovered video", self._hovered(lambda t: t.reset_zoom()), ["Z"])
@@ -615,6 +625,7 @@ class MainWindow(QMainWindow):
         finally:
             self._syncing_menus = False
         self.canvas.set_all_end_action(self.cfg.end_action)
+        self.canvas.apply_background()
         self._apply_window_config()
         self.canvas.schedule_relayout()
         self.canvas.update()

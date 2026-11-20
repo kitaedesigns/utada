@@ -34,6 +34,8 @@
 - **Adding media:** every way in goes through `MainWindow.load` (`window.py`): drops, File > Open, the command line and playlists. It filters by type (`playlist.media_kind`), existence and duplicates, enforces the 6-tile cap, and shows one notice for whatever it left out. On a full wall, a single file replaces a tile: the one it was dropped on, or the next one clicked (`Canvas.begin_pick`).
 - **Drag-and-drop feedback** is painted by the canvas over the video (`Canvas.drop_hint`, `Canvas.pick`), in the plan's blue accent.
 - **Tile shape** comes from mpv's `video-params`, swapped for 90°/270° rotation (EXIF orientation, phone videos).
+- **Decoding:** `DecoderPolicy` (`tile.py`) now defaults to `gpu-copy` for every video (`d3d11va-copy` on Windows). GIFs and stills always decode on the CPU. Values that decoder decisions need (frame rate, tracks, decode path) come from mpv's property observers; the UI thread doesn't wait on the player for them.
+- **Media kinds:** `Entry.kind` comes from the extension; an image that mpv reports as animated (WebP, AVIF) counts as a GIF (`Entry.animated_path`).
 - **No network:** the update check, Open URL and yt-dlp are removed.
 
 ## Implication for the target app

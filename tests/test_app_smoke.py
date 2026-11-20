@@ -654,3 +654,107 @@ def test_rotated_video_gets_a_tile_of_its_shown_shape(app, window, clips, tmp_pa
     pump(app, 2.0)
     tile = window.canvas.tiles[0]
     assert tile.aspect_known and abs(tile.aspect - 180 / 320) < 0.01, tile.aspect
+
+
+# --- Phase 2.2: media handling -------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def media22(tmp_path_factory):
+    """Stills to flip through, a clip with sound, and an animated WebP if ffmpeg can."""
+    folder = tmp_path_factory.mktemp("media22")
+
+    def ff(*args):
+        return subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y", *args],
+                              capture_output=True).returncode == 0
+
+    for name in ("a 1.jpg", "a 2.png", "a 10.jpg"):
+        assert ff("-f", "lavfi", "-i", "testsrc2=size=320x240", "-frames:v", "1",
+                  str(folder / name))
+    assert ff("-f", "lavfi", "-i", "testsrc2=size=320x240:rate=10:duration=1",
+              str(folder / "a 3.gif"))
+    assert ff("-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=2", "-f", "lavfi",
+              "-i", "sine=frequency=440:duration=2", "-c:v", "libx264", "-preset", "ultrafast",
+              "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(folder / "sound.mp4"))
+    (folder / "anim").mkdir()  # its own folder: the flip test counts the files above
+    ff("-f", "lavfi", "-i", "testsrc2=size=320x240:rate=10:duration=1", "-loop", "0",
+       str(folder / "anim" / "moving.webp"))  # needs libwebp; the test using it skips without
+    return folder
+
+
+def test_images_stay_up_and_do_not_pause(app, window, media22):
+    c = window.canvas
+    window.load([media22 / "a 1.jpg"])
+    pump(app, 2.5)  # mpv's own default would end a still after 1 s
+    tile = c.tiles[0]
+    assert tile.entry.kind == "image" and not tile._at_end and tile.frames_drawn > 0
+    tile.toggle_pause()
+    assert not tile.paused  # a still has nothing to pause
+    assert not tile.uses_gpu  # and never takes a GPU decoder
+
+
+def test_gif_loops_and_takes_no_gpu_decoder(app, window, media22):
+    c = window.canvas
+    window.load([media22 / "a 3.gif"])  # 1 s long
+    pump(app, 2.5)
+    tile = c.tiles[0]
+    assert tile.entry.kind == "gif" and not tile._at_end and not tile.uses_gpu
+    assert tile.frames_drawn > 15  # still animating after it ended once
+
+
+def test_audio_is_detected(app, window, clips, media22):
+    c = window.canvas
+    window.load([media22 / "sound.mp4", clips / "c0.mp4"])
+    pump(app, 2.0)
+    by_name = {t.title: t for t in c.tiles}
+    assert by_name["sound"].has_audio is True
+    assert by_name["c0"].has_audio is False
+
+
+def test_hover_facts_per_type(app, window, clips, media22):
+    from mosaicplayer.canvas import _tile_facts
+    c = window.canvas
+    window.load([media22 / "a 1.jpg", media22 / "a 3.gif", clips / "c0.mp4"])
+    pump(app, 2.0)
+    facts = {t.title: _tile_facts(t) for t in c.tiles}
+    assert facts["a 1"][:3] == ["a 1", "IMG", "320×240"]
+    assert not any("/" in f for f in facts["a 1"])  # no timeline for a still
+    assert facts["a 3"][1] == "GIF" and any(" / " in f for f in facts["a 3"])
+    video = facts["c0"]
+    assert video[1:3] == ["VIDEO", "320×180"] and "no audio" in video
+    assert any(f in video for f in ("GPU decode", "CPU decode", "SW decode"))
+
+
+def test_left_right_flip_through_pictures(app, window, media22):
+    c = window.canvas
+    window.load([media22 / "a 2.png"])
+    pump(app, 1.0)
+    tile = c.tiles[0]
+    names = []
+    for step in (1, 1, 1, -1):
+        window._left_right(tile, step)
+        names.append(os.path.basename(tile.entry.path))
+    # Natural order: a 1, a 2, a 3 (GIF), a 10; wrapping; the same player throughout.
+    assert names == ["a 3.gif", "a 10.jpg", "a 1.jpg", "a 10.jpg"]
+    assert c.tiles == [tile]
+
+
+def test_transparency_setting_reaches_the_players(app, window, media22):
+    window.load([media22 / "a 2.png"])
+    pump(app, 1.0)
+    tile = window.canvas.tiles[0]
+    assert tile.player.background == "color"
+    window.cfg.transparency = "checker"
+    window._settings_changed()
+    assert tile.player.background == "tiles"
+
+
+def test_animated_webp_plays_like_a_gif(app, window, media22):
+    if not (media22 / "anim" / "moving.webp").exists():
+        pytest.skip("ffmpeg without libwebp")
+    window.load([media22 / "anim" / "moving.webp"])
+    pump(app, 2.0)
+    tile = window.canvas.tiles[0]
+    assert tile.entry.kind == "gif"
+    tile.toggle_pause()
+    assert tile.paused

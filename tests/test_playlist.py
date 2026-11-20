@@ -213,3 +213,26 @@ def test_expand_folder_one_level(tmp_path):
         "anim.gif", "clip 2.mp4", "clip 10.mp4", "photo.jpg"]
     entries, _ = expand_inputs([tmp_path])  # recursive by default (Add folder with subfolders)
     assert len(entries) == 5
+
+
+def test_step_in_folder():
+    from mosaicplayer.playlist import step_in_folder
+    files = [A(f"/p/{n}") for n in ("a 1.jpg", "a 2.png", "a 10.jpg")]
+    assert step_in_folder(files[0], files, 1) == files[1]
+    assert step_in_folder(files[2], files, 1) == files[0]  # wraps
+    assert step_in_folder(files[0], files, -1) == files[2]
+    # The current file is gone (renamed, or shown in another tile): its neighbours.
+    gone = A("/p/a 5.jpg")
+    assert step_in_folder(gone, files, 1) == files[2]
+    assert step_in_folder(gone, files, -1) == files[1]
+    assert step_in_folder(files[0], files[:1], 1) is None  # nothing else
+    assert step_in_folder(files[0], [], 1) is None
+
+
+def test_animated_images_count_as_gifs():
+    e = Entry("/p/moving.webp")
+    assert e.kind == "image"
+    e.animated_path = e.path  # the player found frames
+    assert e.kind == "gif"
+    e.path = "/p/other.webp"  # a new file: not known to be animated
+    assert e.kind == "image"

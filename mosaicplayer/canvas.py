@@ -22,7 +22,8 @@ from PySide6.QtWidgets import QApplication
 from .config import Config
 from .layout import (LayoutResult, Rect, fixed_grid, grid_layout, justified_columns,
                      justified_rows, puzzle)
-from .playlist import Entry, natural_key, next_in_folder, siblings
+from .playlist import (GIF, IMAGE, VIDEO, Entry, folder_media, natural_key, next_in_folder,
+                       siblings, step_in_folder)
 from .render import Fence, RenderPool, sync_functions
 from .options import NEXT, RANDOM
 from .tile import DecoderPolicy, Tile
@@ -125,7 +126,8 @@ class Canvas(QOpenGLWidget):
         self.tiles_changed.emit()
 
     def _add_tile(self, entry: Entry) -> Tile:
-        tile = Tile(entry, self.policy, self.cfg.end_action, self.cfg.scaling, self)
+        tile = Tile(entry, self.policy, self.cfg.end_action, self.cfg.scaling, self,
+                    background=self.cfg.background, checker=self.cfg.transparency == "checker")
         tile.aspect_changed.connect(lambda t=tile: self._on_aspect(t))
         tile.failed.connect(self.update)
         tile.reached_end.connect(lambda t=tile: self._on_reached_end(t))
@@ -245,6 +247,22 @@ class Canvas(QOpenGLWidget):
             return  # closed while the notification was queued
         tile.apply_decoder_policy()
         self.schedule_relayout()
+        # The decoder has started; give it a moment to settle, then say so if
+        # hardware decoding didn't work out (plan 2.2: never silently).
+        path = tile.entry.path
+        QTimer.singleShot(1500, lambda: self._check_decoder(tile, path))
+
+    def _check_decoder(self, tile: Tile, path: str):
+        if tile not in self.tiles or tile.entry.path != path or not tile.software_fallback:
+            return
+        log.warning("%s: hardware decoding not available, decoding on the CPU", tile.title)
+        self.message.emit(f"{tile.title}: the GPU can't decode this video; "
+                          "it plays with software decoding")
+
+    def apply_background(self):
+        """Settings changed: what transparent pixels show, in every tile."""
+        for t in self.tiles:
+            t.set_background(self.cfg.background, self.cfg.transparency == "checker")
 
     def _on_reached_end(self, tile: Tile):
         if tile not in self.tiles:
@@ -517,7 +535,8 @@ class Canvas(QOpenGLWidget):
             # for 100 tiles every frame took ~18 ms. Cache them in one image.
             dpr = self.devicePixelRatioF()
             key = (self.width(), self.height(), dpr, self.cfg.titles, id(hovered),
-                   tuple((id(t), r, t.paused, t.entry.muted, t.error, t.title)
+                   tuple((id(t), r, t.paused, t.entry.muted, t.error, t.title, t.entry.kind,
+                          t.has_audio, t.frames_drawn == 0)
                          for t, r in zip(self._layout_tiles, self.rects)))
             if key != self._overlay_key:
                 image = QImage(int(self.width() * dpr), int(self.height() * dpr),
@@ -610,14 +629,18 @@ class Canvas(QOpenGLWidget):
                 p.setPen(QColor(255, 140, 140))
                 p.drawText(r, Qt.AlignCenter | Qt.TextWordWrap, f"{tile.title}\n{tile.error}")
                 continue
-            if tile.paused:
+            if tile.frames_drawn == 0:
+                # Opening (a large GIF can take a moment): say so instead of black.
+                p.setPen(QColor(150, 150, 150))
+                p.drawText(r, Qt.AlignCenter, "Loading…")
+            if tile.paused and tile.entry.kind != IMAGE:
                 p.setPen(Qt.NoPen)
                 p.setBrush(QColor(0, 0, 0, 140))
                 p.drawRoundedRect(QRectF(r.right() - 30, r.top() + 8, 22, 22), 4, 4)
                 p.setBrush(QColor(255, 255, 255, 220))
                 p.drawRect(QRectF(r.right() - 25, r.top() + 13, 4, 12))
                 p.drawRect(QRectF(r.right() - 17, r.top() + 13, 4, 12))
-            if not tile.entry.muted:
+            if not tile.entry.muted and tile.has_audio is not False:
                 p.setPen(QColor(120, 220, 255))
                 p.drawText(QPointF(r.left() + 8, r.top() + 20), "🔊")
             if self.cfg.titles == "always" and tile is not skip:
@@ -630,12 +653,12 @@ class Canvas(QOpenGLWidget):
         p.fillRect(bar, QColor(0, 0, 0, 150))
         text = tile.title
         if full:
-            pos, dur = tile.progress()
-            if dur > 0:
-                p.fillRect(QRectF(bar.left(), bar.bottom() - 3, bar.width() * pos / dur, 3),
-                           QColor(120, 200, 255))
-            decoder = "GPU" if tile.on_gpu else "CPU"
-            text = f"{tile.title}   {_fmt(pos)} / {_fmt(dur)}   [{decoder}]"
+            text = "   ".join(_tile_facts(tile))
+            if tile.entry.kind != IMAGE:  # stills have no timeline
+                pos, dur = tile.progress()
+                if dur > 0:
+                    p.fillRect(QRectF(bar.left(), bar.bottom() - 3, bar.width() * pos / dur, 3),
+                               ACCENT)
         p.setPen(QColor(235, 235, 235))
         elided = p.fontMetrics().elidedText(text, Qt.ElideMiddle, int(bar.width() - 16))
         p.drawText(bar.adjusted(8, 0, -8, -3), Qt.AlignVCenter | Qt.AlignLeft, elided)
@@ -853,6 +876,23 @@ class Canvas(QOpenGLWidget):
         self._relayout_timer.stop()
         self._relayout_now()
 
+    def step_image(self, tile: Tile, step: int):
+        """Show the previous (-1) or next (+1) picture (GIF or image) of the folder.
+
+        Pictures already shown in other tiles are skipped unless duplicates are allowed.
+        """
+        images = folder_media(tile.entry.path, {GIF, IMAGE})
+        if not self.cfg.allow_duplicates:
+            elsewhere = {os.path.normcase(os.path.abspath(t.entry.path))
+                         for t in self.tiles if t is not tile}
+            images = [f for f in images
+                      if os.path.normcase(os.path.abspath(f)) not in elsewhere]
+        following = step_in_folder(tile.entry.path, images, step)
+        if following is None:
+            self.message.emit("No other GIFs or images in this folder")
+            return
+        self.replace_tile(tile, following)
+
     def replace_with_random(self, tile: Tile, quiet=False):
         in_use = {t.entry.path for t in self.tiles}
         choices = [p for p in siblings(tile.entry.path) if p not in in_use]
@@ -919,3 +959,45 @@ class Canvas(QOpenGLWidget):
 def _fmt(seconds: float) -> str:
     seconds = int(seconds or 0)
     return f"{seconds // 60}:{seconds % 60:02d}"
+
+
+KIND_LABELS = {VIDEO: "VIDEO", GIF: "GIF", IMAGE: "IMG"}
+
+
+def _size_text(n: int | None) -> str:
+    if n is None:
+        return ""
+    for unit, scale in (("GB", 1 << 30), ("MB", 1 << 20), ("KB", 1 << 10)):
+        if n >= scale:
+            return f"{n / scale:.1f} {unit}"
+    return f"{n} B"
+
+
+def _tile_facts(tile: Tile) -> list[str]:
+    """What the hover bar says about a tile: name, type, size, time, decoder.
+
+    The plan keeps tiles free of permanent badges (2.14): type, resolution and
+    the decode path show here, on hover, instead.
+    """
+    kind = tile.entry.kind
+    label = KIND_LABELS[kind]
+    if kind == GIF and not tile.entry.path.lower().endswith(".gif"):
+        label = "ANIM"  # an animated WebP or AVIF
+    facts = [tile.title, label]
+    w, h = tile.size
+    if w and h:
+        facts.append(f"{w}×{h}")
+    size = _size_text(tile.file_bytes)
+    if size:
+        facts.append(size)
+    if kind != IMAGE:
+        pos, dur = tile.progress()
+        facts.append(f"{_fmt(pos)} / {_fmt(dur)}")
+    if kind == VIDEO:
+        if tile.software_fallback:
+            facts.append("SW decode")
+        else:
+            facts.append("GPU decode" if tile.on_gpu else "CPU decode")
+        if tile.has_audio is False:
+            facts.append("no audio")
+    return facts

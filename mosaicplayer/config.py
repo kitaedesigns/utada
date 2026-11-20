@@ -7,9 +7,9 @@ from dataclasses import dataclass, field, fields
 
 from PySide6.QtCore import QSettings
 
-from .options import AUTO, LOOP
+from .options import AUTO, GPU_COPY, LOOP
 
-CONFIG_VERSION = 2
+CONFIG_VERSION = 3
 
 # Allowed values for the settings that pick from a fixed set.
 CHOICES = {
@@ -20,6 +20,7 @@ CHOICES = {
     "hwdec_api": {"nvdec", "vaapi", "vulkan", "d3d11va"},
     "scaling": {"balanced", "quality", "fast"},
     "titles": {"hover", "always", "never"},
+    "transparency": {"dark", "checker"},
 }
 
 # Allowed ranges for numbers (the same as in the settings window). Values out
@@ -84,11 +85,13 @@ class Config:
     allow_duplicates: bool = False  # the same file on the wall twice
     recursive_folders: bool = False  # a dropped folder adds its subfolders' media too
 
-    # Decoding
-    decoder_mode: str = AUTO
+    # Decoding. Every video decodes on the GPU (plan 2.2): with at most 6 tiles
+    # the GPU never runs out (6 x 4K30 HEVC: no dropped frames, measured in
+    # Phase 1), while CPU-decoding a 4K tile would drop frames.
+    decoder_mode: str = GPU_COPY
     # D3D11 works with any GPU on Windows; elsewhere NVDEC suits NVIDIA cards.
     hwdec_api: str = "d3d11va" if sys.platform == "win32" else "nvdec"
-    gpu_budget_mpx: float = 1200.0
+    gpu_budget_mpx: float = 6000.0  # 6 x 4K60 is ~3000 Mpx/s
     max_gpu_tiles: int = 24
     auto_threshold_mpx: float = 70.0
     scaling: str = "balanced"
@@ -101,6 +104,7 @@ class Config:
     show_menubar: bool = True
     start_fullscreen: bool = False
     background: str = "#000000"
+    transparency: str = "dark"  # what transparent GIFs/PNGs show: dark or checker
 
     # Playlists
     save_positions: bool = True
@@ -132,6 +136,13 @@ class Config:
                 cfg.max_crop = 0.15
             if abs(cfg.layout_effort - 1.2) < 1e-9:
                 cfg.layout_effort = 2.5
+        if version < 3:
+            # v3: every video on the GPU (at most 6 tiles). Move values still at
+            # MosaicPlayer's defaults, which were made for 100+ tiles.
+            if cfg.decoder_mode == AUTO:
+                cfg.decoder_mode = GPU_COPY
+            if abs(cfg.gpu_budget_mpx - 1200.0) < 1e-9:
+                cfg.gpu_budget_mpx = 6000.0
         cfg._defaults = cfg.playlist_settings()
         return cfg
 

@@ -128,10 +128,13 @@ class SettingsDialog(QDialog):
         self.bg_button = QPushButton()
         self.bg_button.clicked.connect(self._pick_background)
         self._update_bg_button()
+        self.transparency = _combo({"dark": "Show the background",
+                                    "checker": "Show a checkerboard"}, c.transparency)
         form = QFormLayout()
         form.addRow("Titles", self.titles)
         form.addRow("Hide mouse after", self.hide_cursor)
         form.addRow("Background", self.bg_button)
+        form.addRow("Transparent GIFs and images", self.transparency)
         form.addRow(self.on_top)
         form.addRow(self.menubar)
         form.addRow(self.start_fs)
@@ -178,7 +181,7 @@ class SettingsDialog(QDialog):
         for box, value in ((self.layout_mode, d.layout_mode), (self.balance, d.size_balance),
                            (self.end_action, d.end_action), (self.decoder_mode, d.decoder_mode),
                            (self.hwdec_api, d.hwdec_api), (self.scaling, d.scaling),
-                           (self.titles, d.titles)):
+                           (self.titles, d.titles), (self.transparency, d.transparency)):
             box.setCurrentIndex(max(0, box.findData(value)))
         for spin, value in ((self.gap, d.gap), (self.max_crop, round(d.max_crop * 100)),
                             (self.fixed_cols, d.fixed_cols), (self.fixed_rows, d.fixed_rows),
@@ -229,6 +232,7 @@ class SettingsDialog(QDialog):
             show_menubar=self.menubar.isChecked(),
             start_fullscreen=self.start_fs.isChecked(),
             background=self._background.name(),
+            transparency=self.transparency.currentData(),
             save_positions=self.save_positions.isChecked(),
             save_paused=self.save_paused.isChecked(),
             recent_limit=self.recent_limit.value(),

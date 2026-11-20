@@ -82,7 +82,7 @@ def test_command_line_overrides_are_not_saved(isolated_settings):
     assert Config.load().layout_mode == "puzzle"
     apply_overrides(cfg, {"decoder_mode": "cpu"})
     cfg.save()
-    assert Config.load().decoder_mode == "auto"  # a global setting override isn't saved either
+    assert Config.load().decoder_mode == "gpu-copy"  # a global setting override isn't saved either
 
 
 def test_settings_from_the_old_name_are_imported_once(isolated_settings):
@@ -128,5 +128,23 @@ def test_settings_from_a_playlist_are_checked():
     assert cfg.layout_mode == "columns" and cfg.end_action == "next"
     assert cfg.gap == 40  # clamped
     assert cfg.max_crop == 0.15 and cfg.size_balance == "equal" and cfg.fixed_cols == 0
-    assert cfg.decoder_mode == "auto"  # not a playlist setting
+    assert cfg.decoder_mode == "gpu-copy"  # not a playlist setting
     cfg.apply_playlist_settings("not a dict")
+
+
+def test_v3_moves_old_decoder_defaults_to_the_gpu(isolated_settings):
+    store = QSettings("mosaicplayer", "mosaicplayer")
+    store.clear()
+    store.setValue("decoder_mode", "auto")  # MosaicPlayer's default, saved by an earlier run
+    store.setValue("gpu_budget_mpx", 1200.0)
+    store.setValue("config_version", 2)
+    store.sync()
+    cfg = Config.load()
+    assert (cfg.decoder_mode, cfg.gpu_budget_mpx) == ("gpu-copy", 6000.0)
+    cfg.decoder_mode = "auto"  # chosen again in Settings: kept from now on
+    cfg.save()
+    assert Config.load().decoder_mode == "auto"
+    store.setValue("decoder_mode", "cpu")  # a deliberate older choice is kept
+    store.setValue("config_version", 2)
+    store.sync()
+    assert Config.load().decoder_mode == "cpu"

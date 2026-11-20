@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import random
 import time
 from pathlib import Path
@@ -13,7 +14,7 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QOpenGLContext
 from PySide6.QtOpenGL import QOpenGLFramebufferObject
 
-from .playlist import IMAGE, Entry
+from .playlist import IMAGE, VIDEO, Entry, media_kind
 from .render import TileTarget
 
 log = logging.getLogger(__name__)
@@ -123,7 +124,7 @@ class Tile(QObject):
     _loaded = Signal()  # mpv thread -> UI thread
 
     def __init__(self, entry: Entry, policy: DecoderPolicy, end_action=LOOP,
-                 scaling="balanced", parent=None):
+                 scaling="balanced", parent=None, background="#000000", checker=False):
         super().__init__(parent)
         self.entry = entry
         self.policy = policy
@@ -145,10 +146,15 @@ class Tile(QObject):
         self._at_end = False
         self.closed = False
         self._video_pixels = 0
+        self.size = (0, 0)  # picture size as shown (after rotation), once known
+        self.has_audio: bool | None = None  # None until the file's tracks are known
+        self._fps: float | None = None  # container frame rate, as mpv reports it
+        self._file_bytes: tuple[str, int | None] | None = None  # (path, size) cache
 
         # GPU modes start on the GPU (if there's room) before the size is known;
         # auto/CPU start on the CPU and move up once the video turns out large.
-        start_gpu = (policy.mode in (GPU_COPY, GPU_ZERO_COPY) and entry.kind != IMAGE
+        # GIFs and stills have no hardware decoder: they always use the CPU.
+        start_gpu = (policy.mode in (GPU_COPY, GPU_ZERO_COPY) and entry.kind == VIDEO
                      and policy.decide(id(self), 30.0))
         self.uses_gpu = start_gpu
 
@@ -160,6 +166,10 @@ class Tile(QObject):
             keep_open="yes",
             # Still images stay on screen (mpv's default shows them for 1 s).
             image_display_duration="inf",
+            # Transparent pixels: the tile background, or a checkerboard if chosen
+            # (mpv 0.41's default is the checkerboard).
+            background="tiles" if checker else "color",
+            background_color=background,
             mute="yes" if entry.muted else "no",
             aid="no" if entry.muted else "auto",
             pause=entry.paused,
@@ -188,6 +198,8 @@ class Tile(QObject):
         self.player.observe_property("pause", self._on_pause)
         self.player.observe_property("hwdec-current", self._on_hwdec)
         self.player.observe_property("eof-reached", self._on_eof)
+        self.player.observe_property("track-list", self._on_tracks)
+        self.player.observe_property("container-fps", self._on_fps)
         self.player.event_callback("end-file")(self._on_end_file)
         self.player.event_callback("file-loaded")(lambda _event: self._loaded.emit())
         self._loaded.connect(self._after_load)  # queued: runs on the UI thread
@@ -208,17 +220,35 @@ class Tile(QObject):
             # mpv reports the shape before rotation (EXIF orientation, a phone
             # video's rotation tag) but shows it rotated: lay out the shown shape.
             aspect = 1 / aspect
+        w, h = params.get("w", 0), params.get("h", 0)
+        self.size = (h, w) if params.get("rotate", 0) % 180 == 90 else (w, h)
         if not self.aspect_known or abs(aspect - self.aspect) > 1e-3:
             self.aspect = aspect
             self.aspect_known = True
-            self._video_pixels = params.get("w", 0) * params.get("h", 0)
+            self._video_pixels = w * h
             self.aspect_changed.emit()
 
     def _on_pause(self, _name, value):
         self._paused = bool(value)
 
     def _on_hwdec(self, _name, value):
-        self._hwdec_current = value or "no"
+        value = value or "no"
+        if value != self._hwdec_current:
+            log.info("%s: decoding with %s", self.title, "CPU" if value == "no" else value)
+        self._hwdec_current = value
+
+    def _on_fps(self, _name, value):
+        self._fps = value or None
+
+    def _on_tracks(self, _name, tracks):
+        if tracks:  # empty while a file is opening
+            self.has_audio = any(t.get("type") == "audio" for t in tracks)
+            # An image file with a moving picture (animated WebP or AVIF) plays
+            # like a GIF; mpv marks real stills as "image".
+            if (media_kind(self.entry.path) == IMAGE
+                    and any(t.get("type") == "video" and t.get("image") is False
+                            for t in tracks)):
+                self.entry.animated_path = self.entry.path
 
     def _on_eof(self, _name, value):
         self._at_end = bool(value)
@@ -249,22 +279,51 @@ class Tile(QObject):
 
     @_while_open
     def apply_decoder_policy(self):
-        if self.entry.kind == IMAGE:
-            # A still decodes once: a GPU decoder slot would be wasted on it.
+        if self.entry.kind != VIDEO:
+            # GIFs and stills have no hardware decoder (a still decodes once anyway).
             self.load_mpx = 0.0
             self.policy.release(id(self))
             use_gpu = False
         else:
-            fps = self.player.container_fps or 30.0
-            self.load_mpx = self._video_pixels * fps / 1e6
+            # The frame rate as mpv reported it: asking the player directly waits
+            # while it is busy opening files, which froze the UI for up to 0.2 s
+            # per new video.
+            self.load_mpx = self._video_pixels * (self._fps or 30.0) / 1e6
             use_gpu = self.policy.decide(id(self), self.load_mpx)
         if use_gpu != self.uses_gpu:
             self.uses_gpu = use_gpu
-            self.player.hwdec = self.policy.gpu_hwdec if use_gpu else "no"
+            # Asynchronous for the same reason.
+            self.player.command_async("set", "hwdec",
+                                      self.policy.gpu_hwdec if use_gpu else "no")
 
     @property
     def on_gpu(self) -> bool:
         return self._hwdec_current not in ("no", "")
+
+    @property
+    def software_fallback(self) -> bool:
+        """Hardware decoding was asked for but this video decodes on the CPU
+        (a format the GPU can't decode, or the GPU refused)."""
+        return (self.uses_gpu and self.entry.kind == VIDEO and self.aspect_known
+                and not self.error and not self.on_gpu)
+
+    @property
+    def file_bytes(self) -> int | None:
+        """Size of the file on disk (looked up once per file)."""
+        path = self.entry.path
+        if self._file_bytes is None or self._file_bytes[0] != path:
+            try:
+                size = os.path.getsize(path)
+            except OSError:
+                size = None
+            self._file_bytes = (path, size)
+        return self._file_bytes[1]
+
+    @_while_open
+    def set_background(self, color: str, checker: bool):
+        """What shows through transparent pixels (and around the picture)."""
+        self.player.background = "tiles" if checker else "color"
+        self.player.background_color = color
 
     # --- rendering (render-worker thread, its GL context current) -----------
 
@@ -363,6 +422,8 @@ class Tile(QObject):
 
     @_while_open
     def set_paused(self, paused: bool):
+        if self.entry.kind == IMAGE:
+            return  # a still has nothing to play or pause
         if not paused and self._at_end:
             self.seek_to(0)  # stopped at the end ("stop" mode): play again from the start
         self._paused = paused
@@ -475,6 +536,7 @@ class Tile(QObject):
         self.entry.path = path
         self.error = None
         self.aspect_known = False
+        self.has_audio = None
         self.created = time.monotonic()
         self.reset_zoom()  # a new file starts at fit
         self.player.play(path)

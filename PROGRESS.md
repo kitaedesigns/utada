@@ -1,6 +1,43 @@
 # Progress
 
-## Status: Phase 2.1 done (2026-11-20). Next: 2.2 media handling.
+## Status: Phase 2.2 done (2026-11-20). Next: 2.3 tile layout (fit instead of crop, auto grid, single-video use, focus mode).
+
+## Phase 2.2: media handling (R2, R3), done 2026-11-20
+**What changed**
+- **Hardware decoding for every video by default** (`gpu-copy`, which is `d3d11va-copy` on Windows; budget 6000 Mpx/s). MosaicPlayer's default decoded videos up to 1080p30 on the CPU, a choice made for 100+ tiles. Saved settings still at the old defaults move over once (config v3); a decoder you chose yourself is kept.
+- Each tile logs its decode path when it changes ("decoding with d3d11va-copy" / "CPU").
+- **Software fallback is never silent:** if a video asked for the GPU but decodes on the CPU, a notice says so once, the log records it, and the hover bar says "SW decode".
+- **No badges on the picture:** plan 2.2 asks for a type badge and an "SW decode" badge on tiles, but plan 2.14 (later and more specific) forbids permanent labels. So type, resolution, file size, time and decode path show in the hover bar, e.g. "hevc_1080_60  VIDEO  1920×1080  35.0 MB  0:02 / 1:00  GPU decode".
+- **GIFs and stills never take a GPU decoder** (GIF has none).
+- **Animated WebP/AVIF** are detected from mpv's track info and behave like GIFs (they play, pause and loop; labelled "ANIM").
+- **Stills:** no timeline and no pause.
+- **Left/Right on a GIF or image tile** flips through the folder's GIFs and images, in natural order and wrapping. Files shown in other tiles are skipped unless duplicates are allowed. The plan lists this for focused image tiles; it is on for every GIF and image tile, since neither has anything to seek.
+- **Transparency:** dark by default; setting "Transparent GIFs and images: show the background / a checkerboard", applied live. mpv 0.41's own default is the checkerboard.
+- **"Loading…"** shows in a tile until its first frame.
+- **Files without audio** are detected; the speaker icon is hidden for them and the hover bar says "no audio".
+- **UI freeze fixed:** adding videos froze the UI for 50–230 ms per video, because the decoder policy asked mpv for the frame rate synchronously while mpv was busy opening the file. It now uses the frame rate mpv reports by itself, and changes the decoder asynchronously. Adding 6 files now stalls the UI by at most about 50–80 ms (creating six players).
+
+**Measured in the real app with every file in `testmedia/`**
+| Check | Result |
+|---|---|
+| Every video on hardware decode: H.264 1080p, H.264 4K MKV, HEVC 1080p60 / 4K30 / 10-bit, VP9, portrait | Pass: all `d3d11va-copy`, no software fallback |
+| Windows' Video Decode engine (Task Manager's graph) with 3 HEVC tiles | 18% (it moves) |
+| GIF variable frame delays (10 × 100 ms, then 10 × 500 ms) | Pass: median 99 ms and 504 ms |
+| GIFs loop; GIF loop count | Loop: pass. A GIF's own loop count (e.g. `anim_once.gif`) is not honoured: mpv's GIF reader ignores it, so GIFs loop until the end-of-media mode says otherwise (2.13) |
+| 68 MB GIF | First frame in 0.3–0.5 s; UI stall at most 79 ms; no conversion fallback needed |
+| 8000×6000 JPG | First frame in 0.4 s; UI stall at most 77 ms |
+| Stills stay up (8 s), EXIF photo upright, HEIC, AVIF, BMP, TIFF, WebP, PNG | Pass |
+| Transparent PNG and GIF, dark and checkerboard | Pass |
+| Corrupt file | Error tile, no crash |
+| File without audio | Detected |
+
+**Test media fixed again:** `transparent.png` was fully transparent (FFmpeg's `drawbox` left alpha at 0), so it tested nothing. It now has a 70%-opaque box.
+
+**Not done here:** loading a GIF through an FFmpeg conversion when the engine can't play it. Every test GIF plays correctly, so there was nothing to fall back from.
+
+**Noted for later:** some UI-thread calls still ask mpv for values synchronously: switching files (2.12) and the hover bar's time readout. They are fast in the tests, but 2.12's switching work will move them off the UI thread.
+
+**Suite:** pyflakes clean; unit 100 passed, 2 skipped, plus the 2 speed-sensitive layout tests; GUI 34 passed (7 new). The unit suite adds step-in-folder, animated-image and settings-migration tests.
 
 ## Phase 2.1: drag and drop and the media list (R1), done 2026-11-20
 **What changed**
