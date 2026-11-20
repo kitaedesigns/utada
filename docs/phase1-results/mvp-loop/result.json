@@ -1,0 +1,14 @@
+{
+  "app": "mvp",
+  "name": "loop",
+  "alive_during_run": true,
+  "exited_cleanly": true,
+  "exit_code": 0,
+  "private_mb": 685,
+  "video_decode_pct": 0.0,
+  "events": [
+    "maximize@8s",
+    "800x500@10s",
+    "2400x1200@13s"
+  ]
+}

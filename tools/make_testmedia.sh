@@ -1,16 +1,21 @@
 #!/usr/bin/env bash
 # Generates the synthetic test media set from the build plan (section 1.3).
 # Usage: tools/make_testmedia.sh [outdir]   (default: testmedia/)
-# Needs ffmpeg with libx265, libx264, libvpx-vp9, libwebp. Optional: heif-enc, exiftool.
-# A PowerShell port is planned for the Windows machine; the ffmpeg lines are identical.
+# Needs ffmpeg with libx265, libx264, libvpx-vp9, libwebp. Optional: exiftool, and for HEIC
+# either heif-enc or a Python with pillow-heif (set HEIF_PYTHON=/path/to/python).
+# Runs on Linux and on Windows from Git Bash.
 set -euo pipefail
 OUT="${1:-testmedia}"
 mkdir -p "$OUT"
 cd "$OUT"
 FF="ffmpeg -hide_banner -loglevel error -y"
+# drawtext needs an explicit font on Windows: the Windows FFmpeg builds have no fontconfig
+# config there and crash (segfault) when left to find a default font.
+FONT=""
+if [ -n "${WINDIR:-}" ]; then FONT="fontfile='C\\:/Windows/Fonts/arial.ttf':"; fi
 # Video source: test pattern with a large frame counter and timestamp burned in.
 vsrc() { # w h fps dur
-  echo "testsrc2=size=$1x$2:rate=$3:duration=$4,drawtext=text='%{frame_num}  %{pts\\:hms}':fontsize=$(( $2 / 8 )):fontcolor=white:box=1:boxcolor=black@0.6:x=(w-tw)/2:y=(h-th)/2"
+  echo "testsrc2=size=$1x$2:rate=$3:duration=$4,drawtext=${FONT}text='%{frame_num}  %{pts\\:hms}':fontsize=$(( $2 / 8 )):fontcolor=white:box=1:boxcolor=black@0.6:x=(w-tw)/2:y=(h-th)/2"
 }
 tone() { echo "sine=frequency=$1:duration=$2:sample_rate=48000"; }
 
@@ -24,6 +29,9 @@ $FF -f lavfi -i "$(vsrc 1280 720 30 20)" -c:v libx264 -preset veryfast -pix_fmt 
 # Portrait and short loop clips (for fit-rule and Loop/Next tests)
 $FF -f lavfi -i "$(vsrc 1080 1920 30 10)" -f lavfi -i "$(tone 990 10)" -c:v libx264 -preset veryfast -pix_fmt yuv420p -c:a aac -shortest portrait_1080x1920.mp4
 $FF -f lavfi -i "$(vsrc 1280 720 30 10)" -f lavfi -i "$(tone 495 10)" -c:v libx264 -preset veryfast -pix_fmt yuv420p -c:a aac -shortest loop_10s.mp4
+# Long clips by stream copy (no re-encode): 60 s of 10-bit HEVC, 10 min of 1080p60 HEVC (memory test)
+$FF -stream_loop 2 -i hevc_10bit.mp4 -c copy hevc_10bit_60s.mp4
+$FF -stream_loop 9 -i hevc_1080_60.mp4 -c copy long_hevc_1080_60_10min.mp4
 # Corrupt: first ~40% of a valid file (moov atom is at the end -> unplayable)
 head -c $(( $(stat -c %s h264_1080_30.mp4) * 2 / 5 )) h264_1080_30.mp4 > corrupt.mp4
 
@@ -47,12 +55,15 @@ $FF -f lavfi -i "$(vsrc 480 270 10 2)" -c:v libwebp_anim -loop 0 anim.webp
 $FF -f lavfi -i "color=c=black@0.0:size=800x600,format=rgba,drawbox=x=200:y=150:w=400:h=300:color=blue@0.7:t=fill" -frames:v 1 transparent.png
 $FF -f lavfi -i "testsrc2=size=8000x6000" -frames:v 1 -q:v 3 big_8000x6000.jpg
 # EXIF orientation 6: pixels stored landscape with "UP" text; viewer must rotate 90 deg CW to read it.
-$FF -f lavfi -i "color=c=gray:size=1200x800,drawtext=text='UP ->':fontsize=200:fontcolor=white:x=(w-tw)/2:y=(h-th)/2" -frames:v 1 exif_rotated.jpg
+$FF -f lavfi -i "color=c=gray:size=1200x800,drawtext=${FONT}text='UP ->':fontsize=200:fontcolor=white:x=(w-tw)/2:y=(h-th)/2" -frames:v 1 exif_rotated.jpg
 if command -v exiftool >/dev/null; then exiftool -q -overwrite_original -Orientation=6 -n exif_rotated.jpg; else echo "WARN: exiftool missing, exif_rotated.jpg has no orientation tag"; fi
 # AVIF (ffmpeg muxer)
 $FF -f lavfi -i "testsrc2=size=1920x1080" -frames:v 1 -c:v libaom-av1 -still-picture 1 still.avif || echo "WARN: AVIF not generated"
-# HEIC (needs heif-enc from libheif-examples)
-if command -v heif-enc >/dev/null; then heif-enc -q 80 still.png -o still.heic || echo "WARN: HEIC not generated"; else echo "WARN: heif-enc missing; HEIC not generated"; fi
+# HEIC: heif-enc (libheif-examples), else pillow-heif (bundles libheif + x265)
+if command -v heif-enc >/dev/null; then heif-enc -q 80 still.png -o still.heic || echo "WARN: HEIC not generated"
+elif [ -n "${HEIF_PYTHON:-}" ]; then
+  "$HEIF_PYTHON" -I -c "import sys, pillow_heif; from PIL import Image; pillow_heif.register_heif_opener(); Image.open(sys.argv[1]).convert('RGB').save(sys.argv[2], quality=80)" still.png still.heic || echo "WARN: HEIC not generated"
+else echo "WARN: no heif-enc and HEIF_PYTHON unset; HEIC not generated"; fi
 
 echo "not a video" > notamedia.txt
 ls -la

@@ -1,0 +1,2 @@
+window_ready_ms=905
+first_frame_ms=1178

@@ -1,0 +1,180 @@
+diff --git a/RustPlayer/src/app.rs b/RustPlayer/src/app.rs
+index e4bed56..f8806ac 100644
+--- a/RustPlayer/src/app.rs
++++ b/RustPlayer/src/app.rs
+@@ -62,6 +62,11 @@ pub struct App {
+     ffmpeg: PathBuf,
+     save_last: bool,
+     remove_cell: Option<usize>,
++    probe_at: Instant,
++    probe_paints: u64,
++    probe_sw: Option<(Instant, Option<u64>)>,
++    probe_sw_n: u32,
++    probe_sw_next: f64,
+ }
+ impl App {
+     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+@@ -150,6 +155,11 @@ impl App {
+             ffmpeg: runtime.join("ffmpeg.exe"),
+             save_last,
+             remove_cell: None,
++            probe_at: Instant::now(),
++            probe_paints: 0,
++            probe_sw: None,
++            probe_sw_n: 0,
++            probe_sw_next: 0.,
+         };
+         app.refresh_presets();
+         let paths = std::env::args_os()
+@@ -1450,6 +1460,86 @@ impl App {
+         }
+     }
+ }
++impl App {
++    /// utada-probe: once a second, append per-cell mpv counters to MVP_PROBE_PATH (CSV).
++    /// utada-probe: with MVP_PROBE_SWITCH set, step cell 0 to the next file in its folder
++    /// playlist (the app's own "next") 10 times and append the time until the new file
++    /// reports time-pos < 0.3 s and a frame has been rendered after that, to <probe>.switch.txt.
++    fn probe_switch(&mut self) {
++        if std::env::var_os("MVP_PROBE_SWITCH").is_none() || self.probe_sw_n >= 10 {
++            return;
++        }
++        let now = self.started.elapsed().as_secs_f64();
++        let Some(p) = self.runtime[0].player.clone() else { return };
++        match self.probe_sw {
++            None => {
++                if now > self.probe_sw_next.max(6.0) {
++                    self.next(0, 1);
++                    self.probe_sw = Some((Instant::now(), None));
++                }
++            }
++            Some((t0, seen)) => {
++                let (pos_ok, renders) = {
++                    let p = p.lock().unwrap();
++                    (p.loaded && p.number("time-pos").is_some_and(|x| x < 0.3), p.probe_renders)
++                };
++                let ms = t0.elapsed().as_secs_f64() * 1000.;
++                let done = match seen {
++                    None if pos_ok => { self.probe_sw = Some((t0, Some(renders))); false }
++                    Some(r) => renders > r,
++                    None => false,
++                };
++                if done || ms > 5000. {
++                    if let Some(path) = std::env::var_os("MVP_PROBE_PATH") {
++                        use std::io::Write;
++                        let path = format!("{}.switch.txt", path.to_string_lossy());
++                        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
++                            let _ = writeln!(f, "{}", if done { format!("{ms:.0}") } else { "timeout".into() });
++                        }
++                    }
++                    self.probe_sw = None;
++                    self.probe_sw_n += 1;
++                    self.probe_sw_next = now + 2.0;
++                }
++            }
++        }
++    }
++    fn probe(&mut self) {
++        self.probe_paints += 1;
++        self.probe_switch();
++        // utada-probe: MVP_PROBE_REMOVE=1 removes cell 0 (the app's own "remove cell") at 20, 24, 28 s.
++        if std::env::var_os("MVP_PROBE_REMOVE").is_some() && self.probe_sw_n < 3 && self.remove_cell.is_none() {
++            let now = self.started.elapsed().as_secs_f64();
++            if now > 20. + 4. * self.probe_sw_n as f64 && self.state.cells.len() > 1 {
++                self.remove_cell = Some(0);
++                self.probe_sw_n += 1;
++            }
++        }
++        if self.probe_at.elapsed() < Duration::from_secs(1) {
++            return;
++        }
++        let Some(path) = std::env::var_os("MVP_PROBE_PATH") else { return };
++        use std::io::Write;
++        let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) else { return };
++        let t = self.started.elapsed().as_secs_f64();
++        let dt = self.probe_at.elapsed().as_secs_f64();
++        let _ = writeln!(f, "{t:.3},app,,,,,,,,,,{:.2}", self.probe_paints as f64 / dt);
++        for (i, r) in self.runtime.iter().enumerate().take(self.state.cells.len()) {
++            if let Some(p) = &r.player {
++                let p = p.lock().unwrap();
++                let n = |k: &str| p.number(k).map(|v| format!("{v}")).unwrap_or_default();
++                let file = self.state.cells[i].video.as_ref().map(|v| v.uri.rsplit(['/', '\\']).next().unwrap_or("").to_string()).unwrap_or_default();
++                let _ = writeln!(f, "{t:.3},{i},{file},{},{},{},{},{},{},{},{},",
++                    p.probe_strings.get("hwdec-current").cloned().unwrap_or_default(),
++                    n("time-pos"), n("container-fps"), n("estimated-vf-fps"),
++                    n("frame-drop-count"), n("decoder-frame-drop-count"), n("vo-delayed-frame-count"),
++                    p.probe_renders);
++            }
++        }
++        self.probe_at = Instant::now();
++        self.probe_paints = 0;
++    }
++}
+ impl eframe::App for App {
+     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+         if self.restore_window {
+@@ -1469,6 +1559,7 @@ impl eframe::App for App {
+         self.apply_scans();
+         self.poll_indexes();
+         self.update_players(frame);
++        self.probe();
+         for r in &self.runtime {
+             if let Some(p) = &r.player {
+                 p.lock().unwrap().refresh_hidden();
+diff --git a/RustPlayer/src/player.rs b/RustPlayer/src/player.rs
+index 8a58fa9..16635b3 100644
+--- a/RustPlayer/src/player.rs
++++ b/RustPlayer/src/player.rs
+@@ -141,6 +141,8 @@ pub struct Player {
+     dirty: Box<std::sync::atomic::AtomicBool>,
+     numbers: std::collections::HashMap<String, f64>,
+     paused: bool,
++    pub probe_strings: std::collections::HashMap<String, String>,
++    pub probe_renders: u64,
+ }
+ // egui callbacks require Send + Sync. The mutex protects access, while creation,
+ // paint and destruction are all owned by eframe's single native GUI thread.
+@@ -188,6 +190,13 @@ impl Player {
+                 ("dheight", 5),
+                 ("volume", 5),
+                 ("pause", 3),
++                // utada-probe: measurement only
++                ("frame-drop-count", 5),
++                ("decoder-frame-drop-count", 5),
++                ("vo-delayed-frame-count", 5),
++                ("estimated-vf-fps", 5),
++                ("container-fps", 5),
++                ("hwdec-current", 1),
+             ] {
+                 let name = CString::new(key).unwrap();
+                 if let Err(e) = api.check((api.observe)(h, 0, name.as_ptr(), format)) {
+@@ -242,6 +251,8 @@ impl Player {
+                 dirty,
+                 numbers: std::collections::HashMap::new(),
+                 paused: true,
++                probe_strings: std::collections::HashMap::new(),
++                probe_renders: 0,
+             })
+         }
+     }
+@@ -313,6 +324,12 @@ impl Player {
+                     if p.format == 5 && !p.data.is_null() {
+                         self.numbers
+                             .insert(key.into_owned(), unsafe { *(p.data as *const f64) });
++                    } else if p.format == 1 && !p.data.is_null() {
++                        let sp = unsafe { *(p.data as *const *const c_char) };
++                        if !sp.is_null() {
++                            let v = unsafe { CStr::from_ptr(sp) }.to_string_lossy().into_owned();
++                            self.probe_strings.insert(key.into_owned(), v);
++                        }
+                     } else if p.format == 3 && key == "pause" && !p.data.is_null() {
+                         self.paused = unsafe { *(p.data as *const c_int) } != 0;
+                     } else if p.format == 0 {
+@@ -409,6 +426,7 @@ impl Player {
+                     },
+                 ];
+                 let r = (self.api.render)(self.render, params.as_mut_ptr());
++                self.probe_renders += 1;
+                 if r < 0 {
+                     self.error = self.api.check(r).err()
+                 }

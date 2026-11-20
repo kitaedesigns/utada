@@ -1,0 +1,10 @@
+{
+  "app": "mosaic",
+  "name": "switch",
+  "alive_during_run": true,
+  "exited_cleanly": true,
+  "exit_code": 0,
+  "private_mb": 641,
+  "video_decode_pct": 0.5,
+  "events": []
+}

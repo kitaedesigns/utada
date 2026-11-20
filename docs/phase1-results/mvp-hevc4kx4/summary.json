@@ -1,0 +1,83 @@
+{
+ "tiles": 4,
+ "hwdec": [
+  "nvdec"
+ ],
+ "total_drops": 0,
+ "max_tile_drops": 0,
+ "min_speed": 1.001,
+ "min_drawn_per_s": 30.0,
+ "app_fps_mean": 143.8,
+ "app_fps_min": 138.9,
+ "cores_used": 0.7,
+ "cpu_pct_machine": 1.4,
+ "private_mb_peak": 5654.0,
+ "gpu_dedicated_mb_peak": 4536.0,
+ "eng_videodecode": 20.4,
+ "eng_3d": 29.1,
+ "eng_copy": 0.0,
+ "smi_dec": 19.8,
+ "smi_gpu": 19.5,
+ "per_tile": [
+  {
+   "tile": 0,
+   "file": "hevc_4k_30.mp4",
+   "hwdec": [
+    "nvdec"
+   ],
+   "wall_s": 31.2,
+   "speed": 1.001,
+   "container_fps": 30.0,
+   "est_vf_fps": 30.000000000000018,
+   "frame_drops": 0.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 30.0
+  },
+  {
+   "tile": 1,
+   "file": "hevc_4k_30.mp4",
+   "hwdec": [
+    "nvdec"
+   ],
+   "wall_s": 31.2,
+   "speed": 1.001,
+   "container_fps": 30.0,
+   "est_vf_fps": 30.000000000000018,
+   "frame_drops": 0.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 30.0
+  },
+  {
+   "tile": 2,
+   "file": "hevc_4k_30.mp4",
+   "hwdec": [
+    "nvdec"
+   ],
+   "wall_s": 31.2,
+   "speed": 1.001,
+   "container_fps": 30.0,
+   "est_vf_fps": 30.000000000000018,
+   "frame_drops": 0.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 30.0
+  },
+  {
+   "tile": 3,
+   "file": "hevc_4k_30.mp4",
+   "hwdec": [
+    "nvdec"
+   ],
+   "wall_s": 31.2,
+   "speed": 1.001,
+   "container_fps": 30.0,
+   "est_vf_fps": 30.000000000000018,
+   "frame_drops": 0.0,
+   "decoder_drops": 0.0,
+   "vo_delayed": 0.0,
+   "drawn_per_s": 30.0
+  }
+ ]
+}

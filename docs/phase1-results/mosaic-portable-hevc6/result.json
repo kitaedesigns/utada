@@ -1,0 +1,10 @@
+{
+  "app": "mosaic-portable",
+  "name": "hevc6",
+  "alive_during_run": true,
+  "exited_cleanly": true,
+  "exit_code": 0,
+  "private_mb": 1336,
+  "video_decode_pct": 26.9,
+  "events": []
+}
