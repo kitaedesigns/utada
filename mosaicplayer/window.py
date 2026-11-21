@@ -9,11 +9,13 @@ from pathlib import Path
 from PySide6.QtCore import QEvent, QPointF, QSettings, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QActionGroup, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (QDialog, QFileDialog, QInputDialog, QLabel, QMainWindow,
-                               QMenu, QMessageBox, QVBoxLayout)
+                               QMenu, QMessageBox, QVBoxLayout, QWidget)
 
 from . import APP_NAME, __version__
 from .canvas import MAX_TILES, Canvas
+from .audio import MASTER_STEP
 from .config import PLAYLIST_FIELDS, Config
+from .footer import Footer
 from .layout import BALANCE_MODES, LAYOUT_MODES
 from .playlist import (GIF, IMAGE, MEDIA_EXTENSIONS, PLAYLIST_EXTENSIONS, Entry, Playlist,
                        expand_inputs, is_media, local_path, natural_key, write_gpls)
@@ -26,6 +28,8 @@ HELP = f"""<h3>{APP_NAME} keys</h3><table cellspacing=4>
 <tr><td><b>Space</b></td><td>pause / play current tile</td><td><b>Click</b></td><td>pause one</td></tr>
 <tr><td><b>M</b></td><td>mute / unmute current tile</td><td><b>Middle-click</b></td><td>mute / unmute one</td></tr>
 <tr><td><b>↑ ↓</b></td><td>volume of current tile</td><td><b>Shift+Space</b>, <b>Shift+M</b></td><td>pause, mute all</td></tr>
+<tr><td><b>Ctrl+↑ ↓</b></td><td>master volume</td><td><b>Ctrl+M</b></td><td>master mute</td></tr>
+<tr><td><b>Ctrl+Shift+M</b></td><td>hear only the current tile</td><td></td><td></td></tr>
 <tr><td><b>PgDn</b>, <b>N</b></td><td>next file in the folder</td><td><b>PgUp</b>, <b>P</b></td><td>previous file in the folder</td></tr>
 <tr><td><b>Wheel</b></td><td>seek ±5 s (Shift ±30 s)</td><td><b>← →</b></td><td>seek current video (GIF, image: previous / next in folder)</td></tr>
 <tr><td><b>Ctrl+wheel</b></td><td>zoom into the hovered video</td><td><b>Z</b></td><td>reset zoom</td></tr>
@@ -38,7 +42,7 @@ HELP = f"""<h3>{APP_NAME} keys</h3><table cellspacing=4>
 <tr><td><b>S</b></td><td>random positions for all</td><td></td><td></td></tr>
 <tr><td><b>Y</b></td><td>sync all to current video's time</td><td><b>Home</b></td><td>restart all</td></tr>
 <tr><td><b>F</b>, <b>F11</b></td><td>fullscreen</td><td><b>H</b></td><td>stats overlay</td></tr>
-<tr><td><b>T</b></td><td>stay on top</td><td><b>Ctrl+M</b></td><td>show / hide the menu bar</td></tr>
+<tr><td><b>T</b></td><td>stay on top</td><td></td><td></td></tr>
 <tr><td><b>Ctrl+O</b></td><td>open videos</td><td><b>Ctrl+Shift+O</b></td><td>add folder (with subfolders)</td></tr>
 <tr><td><b>Ctrl+L</b></td><td>open playlist</td><td></td><td></td></tr>
 <tr><td><b>Ctrl+S</b></td><td>save playlist</td><td><b>Ctrl+Shift+S</b></td><td>save playlist as</td></tr>
@@ -100,7 +104,19 @@ class MainWindow(QMainWindow):
         self._drag_single_file = False  # what is being dragged over the window
 
         self.canvas = Canvas(config, self)
-        self.setCentralWidget(self.canvas)
+        self.footer = Footer(self.canvas.master, self)
+        central = QWidget(self)
+        column = QVBoxLayout(central)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(0)
+        column.addWidget(self.canvas, 1)
+        column.addWidget(self.footer)
+        self.setCentralWidget(central)
+        # The master level is saved shortly after it stops changing (a slider drag
+        # would otherwise write the settings file many times a second).
+        self._save_audio = QTimer(self, singleShot=True, interval=500)
+        self._save_audio.timeout.connect(self.cfg.save)
+        self.canvas.master.changed.connect(self._master_changed)
         self.canvas.tiles_changed.connect(self._update_title)
         self.canvas.message.connect(self.toast)
 
@@ -204,6 +220,15 @@ class MainWindow(QMainWindow):
         self._act(m, "Pause / play all", lambda: c.set_all_paused(not c.all_paused()),
                   ["Shift+Space"])
         self._act(m, "Mute / unmute all", self.toggle_mute_all, ["Shift+M"])
+        m.addSeparator()
+        master = c.master
+        self._act(m, "Master louder", lambda: self._master_step(MASTER_STEP), ["Ctrl+Up"])
+        self._act(m, "Master quieter", lambda: self._master_step(-MASTER_STEP), ["Ctrl+Down"])
+        self._act(m, "Master mute / unmute", lambda: master.set_muted(not master.muted),
+                  ["Ctrl+M"])
+        self._act(m, "Hear only the current tile", self._current(c.mute_all_but),
+                  ["Ctrl+Shift+M"])
+        m.addSeparator()
         self._act(m, "Restart all", c.restart_all, ["Home"])
         self._act(m, "Random positions for all", lambda: [t.seek_random() for t in c.tiles], ["S"])
         self._act(m, "Sync all to the current video", self._current(c.sync_to), ["Y"])
@@ -274,7 +299,7 @@ class MainWindow(QMainWindow):
         self._act(m, "Fullscreen", self.toggle_fullscreen, ["F", "F11"])
         self.top_action = self._act(m, "Stay on top", self.set_stay_on_top, ["T"],
                                     checkable=True, checked=self.cfg.stay_on_top)
-        self.menubar_action = self._act(m, "Show menu bar", self.set_menubar, ["Ctrl+M"],
+        self.menubar_action = self._act(m, "Show menu bar", self.set_menubar,
                                         checkable=True, checked=self.cfg.show_menubar)
         self._act(m, "Stats overlay", self.set_hud, ["H"], checkable=True)
         titles = m.addMenu("Titles")
@@ -672,6 +697,7 @@ class MainWindow(QMainWindow):
         finally:
             self._syncing_menus = False
         self.canvas.set_all_end_action(self.cfg.end_action)
+        self.canvas.set_solo_audio(self.cfg.solo_audio)
         self.canvas.apply_look()
         if self.canvas.solo is not None and not self._paused_by_minimize:
             self.canvas.resume_after_minimize()  # "pause others while focused" may have changed
@@ -788,12 +814,24 @@ class MainWindow(QMainWindow):
         self.cfg.save()
         self._apply_window_config()
         if not on:
-            self.toast("Menu bar hidden: right-click or Ctrl+M brings it back")
+            self.toast("Menu bar hidden: right-click brings it back")
 
     def set_hud(self, on: bool):
         self.canvas.set_hud(on)
 
     # --- misc ---------------------------------------------------------------
+
+    def _master_step(self, step: float):
+        master = self.canvas.master
+        if step > 0 and master.muted:
+            master.set_muted(False)  # turning it up makes it heard
+        master.set_volume(master.volume + step)
+
+    def _master_changed(self):
+        master = self.canvas.master
+        self.cfg.master_volume = master.volume
+        self.cfg.master_muted = master.muted
+        self._save_audio.start()
 
     def toggle_mute_all(self):
         tiles = self.canvas.tiles

@@ -14,6 +14,7 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QOpenGLContext
 from PySide6.QtOpenGL import QOpenGLFramebufferObject
 
+from .audio import effective_volume
 from .playlist import IMAGE, VIDEO, Entry, media_kind
 from .render import TileTarget
 
@@ -125,9 +126,10 @@ class Tile(QObject):
 
     def __init__(self, entry: Entry, policy: DecoderPolicy, end_action=LOOP,
                  scaling="balanced", parent=None, background="#000000", checker=False,
-                 crop=False):
+                 crop=False, master=None):
         super().__init__(parent)
         self.entry = entry
+        self.master = master  # audio.MasterAudio (plan 2.5); None: no master
         self.policy = policy
         self.end_action = end_action
         self.aspect = DEFAULT_ASPECT
@@ -171,11 +173,11 @@ class Tile(QObject):
             # (mpv 0.41's default is the checkerboard).
             background="tiles" if checker else "color",
             background_color=background,
-            mute="yes" if entry.muted else "no",
+            mute="yes" if self._silent() else "no",
             aid="no" if entry.muted else "auto",
             pause=entry.paused,
             speed=entry.rate,
-            volume=entry.volume * 100,
+            volume=self._effective_volume() * 100,
             # Whole picture, never stretched (plan 2.3). The layouts size tiles to
             # the picture; panscan=0 letterboxes any leftover instead of cropping.
             # With cropping allowed, fill the tile (the layout keeps the crop small).
@@ -437,19 +439,45 @@ class Tile(QObject):
     def toggle_pause(self):
         self.set_paused(not self.paused)
 
+    def _effective_volume(self) -> float:
+        master = self.master.volume if self.master is not None else 1.0
+        return effective_volume(self.entry.volume, master)
+
+    def _silent(self) -> bool:
+        return self.entry.muted or (self.master is not None and self.master.silences(self))
+
+    @property
+    def audible(self) -> bool:
+        """Heard right now: not muted by itself, the master or solo audio."""
+        return not self._silent()
+
+    @_while_open
+    def apply_audio(self):
+        """Send the effective volume and mute to mpv (after a tile or master change)."""
+        volume = self._effective_volume()
+        silent = self._silent()
+        self.player.volume = volume * 100
+        self.player.mute = silent
+        log.debug("%s: tile %d%% x master %d%% = %d%%%s", self.title,
+                  round(self.entry.volume * 100),
+                  round((self.master.volume if self.master else 1.0) * 100),
+                  round(volume * 100), ", silent" if silent else "")
+
     @_while_open
     def set_muted(self, muted: bool):
         self.entry.muted = muted
         if not muted:
             self.player.aid = "auto"
-        self.player.mute = muted
+        self.apply_audio()
         if muted:
-            self.player.aid = "no"  # skip audio decoding entirely
+            # Muted by itself: skip audio decoding entirely. (The master and solo
+            # audio only mute, so unmuting them is instant.)
+            self.player.aid = "no"
 
     @_while_open
     def set_volume(self, volume: float):
         self.entry.volume = max(0.0, min(volume, 1.5))
-        self.player.volume = self.entry.volume * 100
+        self.apply_audio()
 
     @_while_open
     def set_speed(self, rate: float):

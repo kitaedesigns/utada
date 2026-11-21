@@ -1,8 +1,32 @@
 # Progress
 
-## Status: Phase 2.4 done (2026-11-20). Next: 2.5 global audio (master volume and mute in a footer).
+## Status: Phase 2.5 done (2026-11-21). Next: 2.6 window modes (normal, maximize, full screen; F10, F11, Ctrl+T).
 
 **App name: Diva Video Player** (decided 2026-11-20). It's in the window title, dialogs and About box, which credits MosaicPlayer. The Python package and internal identifiers keep the name `mosaicplayer`. Settings, thumbnails and logs move to `%APPDATA%` / `%LOCALAPPDATA%\Diva Video Player` with the JSON settings in 2.8.
+
+## Phase 2.5: global audio (R5), done 2026-11-21
+**What changed**
+- **Master volume and mute** (`audio.py`): every tile plays at `its own volume x master`, clamped to mpv's 130 % limit. Changing the master re-applies all tiles at once and never changes a tile's own (saved) level.
+- **Mutes combine:** a tile is silent if it is muted itself, the master is muted, or solo audio leaves it out. The master and solo audio only mute (the audio keeps decoding), so unmuting them is instant; a tile's own mute still skips audio decoding.
+- **Footer strip** under the wall (`footer.py`): "Master", a mute button, a slider (0–100 %, drag or wheel) and the level readout ("70%", "70% (muted)"). Same icons and slider as the hover bars. Plan 2.14 adds the panel toggles, end-of-clip switch and window buttons to it.
+- **Keys:** Ctrl+Up / Ctrl+Down master ±10 % (up also unmutes), Ctrl+M master mute, Ctrl+Shift+M hear only the current tile (mutes the others, unmutes it and the master). Ctrl+M no longer shows/hides the menu bar; that stays in View and the right-click menu until the menu bar goes in 2.14.
+- **Solo audio** (Settings → Playback, default off): only the current tile (under the mouse, else focused, else last under the mouse) is heard; it follows the mouse.
+- **Saved:** master volume and mute persist (written 0.5 s after the last change); the solo-audio setting too. They move to the JSON settings in 2.8.
+- **Debug log:** each audio change logs `tile % x master % = effective %` (and "silent") at debug level, per the plan.
+- The tile's speaker badge now means "heard right now" (it follows the master); the badges go in 2.14.
+
+**Acceptance (plan 2.5)**
+| Test | Result |
+|---|---|
+| Master scales all tiles; per-tile changes affect one | Pass (GUI test reads mpv's volume per tile: 0.5 x 0.6 = 30 %, others 60 %; a tile change moves only that tile) |
+| Mute states combine correctly | Pass (GUI test: master mute silences all without touching tiles' own mutes; unmuting it keeps a muted tile muted) |
+| Hotkeys | Pass (GUI test sends the real Ctrl+M, Ctrl+Up, Ctrl+Down keys; Ctrl+Shift+M through its action) |
+| Footer: mute, drag, readout | Pass (GUI test; screenshot of the app window) |
+| Solo audio | Pass (GUI test: follows the hovered tile, off restores all) |
+| Persisted | Pass (unit test of the saved value's checks; GUI test that the setting follows the master) |
+| **By ear** with tone-per-file media | **Not done:** I can't listen. Checked through mpv's own volume and mute properties instead. Please give it a listen. |
+
+**Suite:** pyflakes clean; 155 passed (unit 4 new, GUI 2 new, keyboard test updated for Ctrl+M), 2 skipped, 1 xfailed, 1 xpassed.
 
 ## Phase 2.4: hover controls (R4), done 2026-11-20
 **What changed**
@@ -16,7 +40,7 @@
 - **Sliders:** the seek bar follows a drag (fast keyframe seeks while dragging, exact on release); the volume slider follows a drag and unmutes. A muted tile shows its level greyed.
 - **Mode button** cycles Loop → Next → Stop; its tooltip says what each does. Next for GIFs and images (advance after a display time) comes with the queue work in 2.13.
 - **Tooltips** name each control and its key.
-- **Keys (plan 2.4), on the current tile:** Space play/pause, M mute, Up/Down volume ±10%, Left/Right seek 5 s (GIF, image: previous/next picture, from 2.2), PageDown/N and PageUp/P next/previous file in the folder. Pause all and mute all moved to Shift+Space and Shift+M. N no longer means "random file" (out of scope, still in the Playback menu without a key). The hotkey table's Ctrl+M (master mute) comes with 2.5; until then Ctrl+M still shows/hides the menu bar.
+- **Keys (plan 2.4), on the current tile:** Space play/pause, M mute, Up/Down volume ±10%, Left/Right seek 5 s (GIF, image: previous/next picture, from 2.2), PageDown/N and PageUp/P next/previous file in the folder. Pause all and mute all moved to Shift+Space and Shift+M. N no longer means "random file" (out of scope, still in the Playback menu without a key). Ctrl+M became master mute in 2.5.
 - **No "airspace" problem** (plan 2.4's known risk): mpv renders into textures inside the app's own OpenGL canvas, so the bars are drawn with QPainter over the video.
 - **Not yet:** the move-to-folder button arrives with send-to-folder (2.11).
 

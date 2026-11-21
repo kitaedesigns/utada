@@ -37,6 +37,7 @@ RANGES = {
     "render_threads": (1, 16),
     "hide_cursor_ms": (0, 60000),
     "recent_limit": (0, 50),
+    "master_volume": (0.0, 1.0),
 }
 
 
@@ -83,6 +84,11 @@ class Config:
     pause_when_minimized: bool = True
     pause_others_when_focused: bool = True  # focus mode: the hidden tiles pause
     one_at_a_time: bool = False  # a new file replaces the current tile instead of adding
+
+    # Global audio (plan 2.5): every tile plays at its own volume x the master.
+    master_volume: float = 1.0
+    master_muted: bool = False
+    solo_audio: bool = False  # only the current (hovered or focused) tile is heard
 
     # Adding files
     allow_duplicates: bool = False  # the same file on the wall twice

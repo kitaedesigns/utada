@@ -265,10 +265,14 @@ def test_keyboard_shortcuts(app, window, clips):
     while not c._layout_tiles and time.monotonic() < deadline:
         pump(app, 0.05)
     c.hovered = c._layout_tiles[0]
+    key(Qt.Key_M, Qt.ControlModifier)  # master mute (plan 2.5)
+    assert c.master.muted and all(t.player.mute for t in c.tiles)
     key(Qt.Key_M, Qt.ControlModifier)
-    assert not window.menuBar().isVisible()
-    key(Qt.Key_M, Qt.ControlModifier)
-    assert window.menuBar().isVisible()
+    assert not c.master.muted
+    key(Qt.Key_Down, Qt.ControlModifier)
+    assert c.master.volume == 0.9 and cfg.master_volume == 0.9
+    key(Qt.Key_Up, Qt.ControlModifier)
+    assert c.master.volume == 1.0
     # Stay on top recreates the native window; it must get keyboard focus back.
     key(Qt.Key_T)
     deadline = time.monotonic() + 5
@@ -959,3 +963,72 @@ def test_space_m_and_arrows_act_on_the_current_tile_only(app, window, clips):
     assert os.path.basename(a.entry.path) == "c2.mp4"
     run["Shift+Space"].trigger()
     assert c.all_paused()
+
+
+def test_master_volume_scales_every_tile(app, window, clips, media22):
+    """Plan 2.5: effective volume = tile x master; mutes combine; solo audio."""
+    c = window.canvas
+    m = c.master
+    window.load([media22 / "sound.mp4", clips / "c0.mp4", clips / "c1.mp4"])
+    pump(app, 1.5)
+    a, b, d = c.tiles
+    for t in (a, b, d):
+        t.set_muted(False)
+    a.set_volume(0.5)
+    m.set_volume(0.6)
+    assert abs(a.player.volume - 30) < 0.01 and abs(b.player.volume - 60) < 0.01
+    assert a.entry.volume == 0.5 and window.cfg.master_volume == 0.6  # own level kept
+    b.set_volume(0.25)  # a tile change affects that tile only
+    assert abs(b.player.volume - 15) < 0.01 and abs(d.player.volume - 60) < 0.01
+    # Mutes combine: the master silences all; unmuting it keeps a tile's own mute.
+    d.set_muted(True)
+    m.set_muted(True)
+    assert all(t.player.mute for t in (a, b, d)) and not a.entry.muted
+    assert window.cfg.master_muted
+    m.set_muted(False)
+    assert not a.player.mute and not b.player.mute and d.player.mute
+    # Ctrl+Shift+M: only the current tile is heard, even with the master muted.
+    m.set_muted(True)
+    c.hovered = b
+    run = {act.shortcut().toString(): act for act in window.actions()
+           if not act.shortcut().isEmpty()}
+    run["Ctrl+Shift+M"].trigger()
+    assert [t.audible for t in (a, b, d)] == [False, True, False] and not m.muted
+    # Solo audio: only the tile under the mouse is heard, and it follows the mouse.
+    for t in (a, b, d):
+        t.set_muted(False)
+    c.set_solo_audio(True)
+    assert [t.player.mute for t in (a, b, d)] == [True, False, True]
+    _mouse(c, "move", c._rect_of(d).center())
+    assert [t.audible for t in (a, b, d)] == [False, False, True]
+    c.set_solo_audio(False)
+    assert all(t.audible for t in (a, b, d))
+
+
+def test_footer_master_controls(app, window, clips):
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtWidgets import QApplication
+    f = window.footer
+    m = window.canvas.master
+    window.load([clips / "c0.mp4"])
+    pump(app, 1.0)
+    assert f.isVisible() and f.geometry().top() >= window.canvas.geometry().bottom()
+
+    def send(kind, point, buttons):
+        point = QPointF(point)
+        QApplication.sendEvent(f, QMouseEvent(kind, point, f.mapToGlobal(point), Qt.LeftButton,
+                                              buttons, Qt.NoModifier))
+
+    ctrl = f.controls()
+    mute = ctrl["mute"].center()
+    send(QEvent.MouseButtonPress, mute, Qt.LeftButton)
+    send(QEvent.MouseButtonRelease, mute, Qt.NoButton)
+    assert m.muted and f.level_text().endswith("(muted)")
+    vol = ctrl["volume"]
+    send(QEvent.MouseButtonPress, vol.center(), Qt.LeftButton)  # dragging unmutes
+    assert not m.muted and abs(m.volume - 0.5) < 0.02
+    send(QEvent.MouseMove, QPointF(vol.right() + 50, vol.center().y()), Qt.LeftButton)
+    send(QEvent.MouseButtonRelease, QPointF(vol.right() + 50, vol.center().y()), Qt.NoButton)
+    assert m.volume == 1.0 and f.level_text() == "100%"
+    assert abs(window.canvas.tiles[0].player.volume - 100 * window.canvas.tiles[0].entry.volume) < 0.01

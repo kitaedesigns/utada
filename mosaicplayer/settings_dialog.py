@@ -85,6 +85,8 @@ class SettingsDialog(QDialog):
                                        "current one)", checked=c.one_at_a_time)
         self.pause_others = QCheckBox("Pause the other videos while one is focused",
                                       checked=c.pause_others_when_focused)
+        self.solo_audio = QCheckBox("Solo audio: only the tile under the mouse (or the "
+                                    "focused one) is heard", checked=c.solo_audio)
         form = QFormLayout()
         form.addRow("When a video ends", self.end_action)
         form.addRow(self.start_muted)
@@ -94,6 +96,7 @@ class SettingsDialog(QDialog):
         form.addRow(self.recursive)
         form.addRow(self.one_at_a_time)
         form.addRow(self.pause_others)
+        form.addRow(self.solo_audio)
         tabs.addTab(_page(form), "Playback")
 
         # Decoding
@@ -130,7 +133,7 @@ class SettingsDialog(QDialog):
         self.hide_cursor = QSpinBox(minimum=0, maximum=60000, singleStep=500,
                                     value=c.hide_cursor_ms, suffix=" ms", specialValueText="never")
         self.on_top = QCheckBox("Keep window on top", checked=c.stay_on_top)
-        self.menubar = QCheckBox("Show menu bar (right-click or Ctrl+M when hidden)", checked=c.show_menubar)
+        self.menubar = QCheckBox("Show menu bar (right-click brings it back)", checked=c.show_menubar)
         self.start_fs = QCheckBox("Start in fullscreen", checked=c.start_fullscreen)
         self._background = QColor(c.background)
         self.bg_button = QPushButton()
@@ -206,6 +209,7 @@ class SettingsDialog(QDialog):
                              (self.recursive, d.recursive_folders),
                              (self.one_at_a_time, d.one_at_a_time),
                              (self.pause_others, d.pause_others_when_focused),
+                             (self.solo_audio, d.solo_audio),
                              (self.on_top, d.stay_on_top),
                              (self.menubar, d.show_menubar), (self.start_fs, d.start_fullscreen),
                              (self.save_positions, d.save_positions),
@@ -232,6 +236,7 @@ class SettingsDialog(QDialog):
             recursive_folders=self.recursive.isChecked(),
             one_at_a_time=self.one_at_a_time.isChecked(),
             pause_others_when_focused=self.pause_others.isChecked(),
+            solo_audio=self.solo_audio.isChecked(),
             decoder_mode=self.decoder_mode.currentData(),
             hwdec_api=self.hwdec_api.currentData(),
             gpu_budget_mpx=float(self.budget.value()),

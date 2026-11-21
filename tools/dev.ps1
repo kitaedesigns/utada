@@ -25,7 +25,7 @@ try {
         # Like CI: the GUI smoke tests in their own process. Their leftover player threads
         # otherwise take CPU from the time-budgeted layout tests that follow them.
         & $py -m pyflakes mosaicplayer tests; $lint = $LASTEXITCODE
-        & $py -m pytest -q tests/test_layout.py tests/test_playlist.py tests/test_config.py tests/test_hoverbar.py; $unit = $LASTEXITCODE
+        & $py -m pytest -q tests/test_layout.py tests/test_playlist.py tests/test_config.py tests/test_hoverbar.py tests/test_audio.py; $unit = $LASTEXITCODE
         & $py -m pytest -q tests/test_app_smoke.py; $gui = $LASTEXITCODE
         "pyflakes: $lint  unit: $unit  gui: $gui"
         exit [int]($lint -or $unit -or $gui)

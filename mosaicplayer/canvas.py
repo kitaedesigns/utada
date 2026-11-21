@@ -21,6 +21,7 @@ from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtWidgets import QApplication, QToolTip
 
 from . import hoverbar
+from .audio import MasterAudio
 from .config import Config
 from .layout import (LayoutResult, Rect, fixed_grid, grid_layout, justified_columns,
                      justified_rows, puzzle)
@@ -70,6 +71,11 @@ class Canvas(QOpenGLWidget):
         self.pool: RenderPool | None = None  # created once the GL context exists
         self._blitter: QOpenGLTextureBlitter | None = None
         self._unassigned: list[Tile] = []
+        # Master volume and mute (plan 2.5), shared by every tile.
+        self.master = MasterAudio(config.master_volume, config.master_muted,
+                                  config.solo_audio, self)
+        self.master.changed.connect(self._apply_master)
+        self.tiles_changed.connect(self._sync_solo_audio)
         self._previous_rects: dict[int, Rect] = {}  # tile id -> rect before the change
         self._layout_cache: dict = {}  # finished layouts by videos/window/settings
         self._shown_size = (0, 0)  # canvas size the current layout was made for
@@ -142,7 +148,7 @@ class Canvas(QOpenGLWidget):
     def _add_tile(self, entry: Entry) -> Tile:
         tile = Tile(entry, self.policy, self.cfg.end_action, self.cfg.scaling, self,
                     background=self.cfg.background, checker=self.cfg.transparency == "checker",
-                    crop=self.cfg.max_crop > 0)
+                    crop=self.cfg.max_crop > 0, master=self.master)
         tile.aspect_changed.connect(lambda t=tile: self._on_aspect(t))
         tile.failed.connect(self.update)
         tile.reached_end.connect(lambda t=tile: self._on_reached_end(t))
@@ -570,7 +576,7 @@ class Canvas(QOpenGLWidget):
             # for 100 tiles every frame took ~18 ms. Cache them in one image.
             dpr = self.devicePixelRatioF()
             key = (self.width(), self.height(), dpr, self.cfg.titles, id(hovered),
-                   tuple((id(t), r, t.paused, t.entry.muted, t.error, t.title, t.entry.kind,
+                   tuple((id(t), r, t.paused, t.audible, t.error, t.title, t.entry.kind,
                           t.has_audio, t.frames_drawn == 0)
                          for t, r in zip(self._layout_tiles, self.rects)))
             if key != self._overlay_key:
@@ -676,7 +682,7 @@ class Canvas(QOpenGLWidget):
                 p.setBrush(QColor(255, 255, 255, 220))
                 p.drawRect(QRectF(r.right() - 25, r.top() + 13, 4, 12))
                 p.drawRect(QRectF(r.right() - 17, r.top() + 13, 4, 12))
-            if not tile.entry.muted and tile.has_audio is not False:
+            if tile.audible and tile.has_audio is not False:
                 p.setPen(QColor(120, 220, 255))
                 p.drawText(QPointF(r.left() + 8, r.top() + 20), "🔊")
             if self.cfg.titles == "always":
@@ -873,6 +879,7 @@ class Canvas(QOpenGLWidget):
             self.show_bar(tile)
         if tile is not self.hovered:
             self.hovered = tile
+            self._sync_solo_audio()
             self.update()
         self._bar_hover(pos, event.globalPosition().toPoint())
         self._sync_overlay_timer()
@@ -1060,6 +1067,7 @@ class Canvas(QOpenGLWidget):
         if tile is self.solo:
             return
         self.solo = tile
+        self._sync_solo_audio()
         # Hidden tiles stop decoding while one video is focused.
         self.resume_after_minimize()
         self._relayout_timer.stop()
@@ -1124,6 +1132,28 @@ class Canvas(QOpenGLWidget):
         for t in self.tiles:
             t.set_muted(muted)
         self.update()
+
+    def mute_all_but(self, tile: Tile):
+        """Only ``tile`` is heard (Ctrl+Shift+M, plan 2.5). The master unmutes too,
+        or nothing would be heard."""
+        for t in self.tiles:
+            t.set_muted(t is not tile)
+        self.master.set_muted(False)
+        self.update()
+
+    def _apply_master(self):
+        """The master changed: every tile plays at its own level x the master."""
+        for t in self.tiles:
+            t.apply_audio()
+        self.update()
+
+    def set_solo_audio(self, on: bool):
+        self.master.set_solo_audio(on)
+        self._sync_solo_audio()
+
+    def _sync_solo_audio(self):
+        """Solo audio (a setting, plan 2.5): only the current tile is heard."""
+        self.master.set_solo_tile(self.current if self.master.solo_audio else None)
 
     def restart_all(self):
         for t in self.tiles:
